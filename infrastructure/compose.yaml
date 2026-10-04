@@ -1,0 +1,26 @@
+name: roco-seo-foundation
+
+services:
+  postgres:
+    image: postgres:17.11-alpine3.24
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-roco_seo}
+      POSTGRES_USER: ${POSTGRES_USER:-roco_seo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-roco_seo_dev}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    volumes:
+      - roco-seo-postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init-test-db.sql:/docker-entrypoint-initdb.d/10-init-test-db.sql:ro
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  roco-seo-postgres:

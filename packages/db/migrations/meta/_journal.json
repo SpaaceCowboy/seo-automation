@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790591953344,
+      "tag": "0000_hard_xavin",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790668903968,
+      "tag": "0001_loving_lady_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790672400000,
+      "tag": "0002_phase3_google_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790672500000,
+      "tag": "0003_phase3_unmatched_urls",
+      "breakpoints": true
+    }
+  ]
+}

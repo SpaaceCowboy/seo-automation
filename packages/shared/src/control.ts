@@ -11,6 +11,7 @@ export const sectionSchema = z.enum([
   "measurements",
   "freshness",
   "signals",
+  "integrations",
 ]);
 export type ControlSection = z.infer<typeof sectionSchema>;
 export const controlFilterSchema = z
@@ -87,3 +88,5 @@ export const identitySchema = z.object({
   roles: z.array(z.string()),
 });
 export type ControlIdentity = z.infer<typeof identitySchema>;
+
+export * from "./integrations-control.js";

@@ -51,3 +51,7 @@ Use a dedicated local `TEST_DATABASE_URL` ending `_test`, never a deployment dat
 Screenshots are QA artifacts under ignored `tmp/`, not fragile pixel assertions. See `../PHASE_7_VALIDATION.md` for actual results, reviewed scope exceptions and Phase 7 file inventory.
 
 Measurement source-ID arrays in dashboard detail responses cap at 100 per sample/group and retain original counts/truncation flags. Exact full source provenance remains in PostgreSQL and the existing authenticated Phase 6 history contract for deliberate audit access. Metric values and classification are never recomputed or changed by this display projection.
+
+## Integrations
+
+The dedicated Integrations view is available before the first AI run. Separate worker, activation, model-access, budget and sync-history indicators prevent empty analysis history from being mistaken for disconnection. OPERATOR users may check OpenAI access without paid inference; viewers have read-only access. See `../INTEGRATIONS_STATUS.md`.

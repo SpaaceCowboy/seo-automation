@@ -1,9 +1,12 @@
+import { OPENAI_CONNECTION_QUEUE } from "@roco/shared/control";
+import { WorkflowError } from "@roco/workflow";
 import { randomUUID } from "node:crypto";
 
 import { parseApiConfig, loadEnvironment } from "@roco/config";
 import {
   createCrawlRepository,
   createDatabase,
+  createIntegrationStatusRepository,
   createIntegrationRepository,
   createOpportunityRepository,
   createAgentRepository,
@@ -112,8 +115,39 @@ async function start(): Promise<void> {
     expireInSeconds: 1800,
     deleteAfterSeconds: 604800,
   });
+  const integrationStatus = createIntegrationStatusRepository(database.pool);
+  await boss.createQueue(OPENAI_CONNECTION_QUEUE, {
+    retryLimit: 0,
+    expireInSeconds: 60,
+    deleteAfterSeconds: 604800,
+  });
   const app = buildApp({
-    control: createControlRepository(database.db),
+    control: {
+      ...createControlRepository(database.db),
+      integrations: (siteId, p) => integrationStatus.read(siteId, p),
+      async checkOpenai(p) {
+        const ticket = await integrationStatus.request("MANUAL", p);
+        if (ticket.enqueue) {
+          try {
+            const job = await boss.send(OPENAI_CONNECTION_QUEUE, {
+              checkId: ticket.id,
+              instanceId: ticket.instanceId,
+              correlationId: ticket.correlationId,
+            });
+            if (!job) throw new Error("ENQUEUE_FAILED");
+          } catch {
+            await integrationStatus.finish(ticket.id, {
+              status: "FAILED",
+              errorCode: "CHECK_QUEUE_UNAVAILABLE",
+              httpStatus: null,
+              durationMs: 0,
+            });
+            throw new WorkflowError("INTEGRATION_CHECK_QUEUE_UNAVAILABLE");
+          }
+        }
+        return ticket;
+      },
+    },
     workflowAccess: config.WORKFLOW_ACCESS_JSON,
     workflow: {
       async invoke(operation, siteId, id, body, p) {

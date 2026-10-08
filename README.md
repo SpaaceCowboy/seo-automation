@@ -260,3 +260,7 @@ Open [SEO Control Center](https://scc.rocobroker.com/sign-in) with the existing 
 ### Initial AI connection
 
 Only the SEO Supervisor is activated, using GPT-6.1 Sol with medium reasoning and a $20 monthly application cap. Real recommendation evaluation awaits genuine scored Google evidence. See [Supervisor connection](docs/SUPERVISOR_CONNECTION.md) for eligibility, limits and validation.
+
+### Integration availability
+
+The Integrations sidebar view shows worker health, all five agent activation states, OpenAI key/model verification, application budget and stored Google sync status. Checks are metadata-only and require OPERATOR permission when requested manually. See [operational status](docs/INTEGRATIONS_STATUS.md).

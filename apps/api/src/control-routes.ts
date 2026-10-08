@@ -3,6 +3,7 @@ import type { Server, IncomingMessage, ServerResponse } from "node:http";
 import type { Logger } from "@roco/shared";
 import {
   sectionSchema,
+  integrationsStatusSchema,
   controlFilterSchema,
   type ControlSection,
 } from "@roco/shared/control";
@@ -19,6 +20,15 @@ export interface ControlApiService {
     event: "SIGN_IN" | "SIGN_OUT",
   ): Promise<void>;
   sites(this: void, p: Principal): Promise<unknown>;
+  integrations?(
+    this: void,
+    siteId: string | undefined,
+    p: Principal,
+  ): Promise<unknown>;
+  checkOpenai?(
+    this: void,
+    p: Principal,
+  ): Promise<{ id: string; status: string; enqueue: boolean }>;
   read(
     this: void,
     siteId: string,
@@ -81,6 +91,8 @@ export function registerControlRoutes(
     ["POST", "/control/session"],
     ["DELETE", "/control/session"],
     ["GET", "/control/sites"],
+    ["GET", "/control/integrations"],
+    ["POST", "/control/integrations/openai/check"],
     ["GET", "/sites/:siteId/control/:section"],
     ["GET", "/sites/:siteId/control/:section/:id"],
   ] as const)
@@ -97,6 +109,45 @@ export function registerControlRoutes(
             return service.identity(p);
           }
           if (url === "/control/sites") return service.sites(p);
+          if (url === "/control/integrations") {
+            requireRole(p, "READ");
+            const query = z
+              .strictObject({ siteId: z.string().uuid().optional() })
+              .parse(request.query);
+            if (!service.integrations)
+              return reply
+                .code(503)
+                .send({ error: "INTEGRATIONS_STATUS_UNAVAILABLE" });
+            const status = integrationsStatusSchema.safeParse(
+              await service.integrations(query.siteId, p),
+            );
+            if (!status.success) {
+              request.log.error(
+                { errorCode: "INTEGRATION_STATUS_CONTRACT" },
+                "integration status contract failed",
+              );
+              return reply
+                .code(503)
+                .send({ error: "INTEGRATIONS_STATUS_UNAVAILABLE" });
+            }
+            return status.data;
+          }
+          if (url === "/control/integrations/openai/check") {
+            requireRole(p, "OPERATOR");
+            z.strictObject({}).parse(request.body);
+            if (!service.checkOpenai)
+              return reply
+                .code(503)
+                .send({ error: "INTEGRATIONS_STATUS_UNAVAILABLE" });
+            const result = await service.checkOpenai(p);
+            return reply
+              .code(
+                result.enqueue || ["QUEUED", "RUNNING"].includes(result.status)
+                  ? 202
+                  : 200,
+              )
+              .send({ checkId: result.id, status: result.status });
+          }
           const parsed = params.parse(request.params);
           const result = parsed.id
             ? await service.detail(parsed.siteId, parsed.section, parsed.id, p)
@@ -115,11 +166,19 @@ export function registerControlRoutes(
           if (error instanceof WorkflowError)
             return reply
               .code(
-                error.code === "CONTROL_NOT_CONFIGURED"
+                [
+                  "CONTROL_NOT_CONFIGURED",
+                  "INTEGRATION_WORKER_UNAVAILABLE",
+                  "INTEGRATION_CHECK_QUEUE_UNAVAILABLE",
+                ].includes(error.code)
                   ? 503
-                  : error.code === "UNAUTHORIZED"
-                    ? 401
-                    : 403,
+                  : error.code === "OPENAI_NOT_CONFIGURED"
+                    ? 409
+                    : error.code === "CONTROL_RECORD_NOT_FOUND"
+                      ? 404
+                      : error.code === "UNAUTHORIZED"
+                        ? 401
+                        : 403,
               )
               .send({ error: error.code });
           request.log.error(

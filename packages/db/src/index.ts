@@ -165,3 +165,4 @@ export * from "./workflow-repository.js";
 export * from "./measurement-repository.js";
 
 export * from "./control-repository.js";
+export * from "./integration-status-repository.js";

@@ -42,6 +42,23 @@ export function displayDate(value: unknown, locale = "en-US") {
 }
 export function errorMessage(code: string) {
   const map: Record<string, string> = {
+    INTEGRATION_WORKER_UNAVAILABLE:
+      "The worker is unavailable. Wait for recovery before checking the connection.",
+    INTEGRATION_CHECK_QUEUE_UNAVAILABLE:
+      "The connection check could not be queued. Try again after recovery.",
+    OPENAI_NOT_CONFIGURED: "The provider key and model are not configured.",
+    OPENAI_CREDENTIAL_REJECTED: "OpenAI rejected the configured credential.",
+    OPENAI_ACCESS_DENIED: "The configured key cannot access this model.",
+    OPENAI_MODEL_UNAVAILABLE:
+      "The configured model is unavailable to this key.",
+    OPENAI_INVALID_MODEL_RESPONSE:
+      "OpenAI returned invalid model metadata. Access could not be verified.",
+    OPENAI_RATE_LIMITED: "OpenAI rate-limited the check. Try again later.",
+    OPENAI_PROVIDER_UNAVAILABLE: "OpenAI is temporarily unavailable.",
+    OPENAI_CHECK_TIMEOUT: "The connection check timed out.",
+    OPENAI_CHECK_NETWORK_ERROR: "The worker could not reach OpenAI.",
+    CHECK_INTERRUPTED:
+      "The check was interrupted. Request a new check after recovery.",
     SIGN_IN_REQUIRED: "Your session expired. Sign in again.",
     UNAUTHORIZED: "Your access credential was revoked. Sign in again.",
     WORKFLOW_FORBIDDEN: "Your role does not allow this action.",

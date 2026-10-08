@@ -167,3 +167,7 @@ docker compose --env-file /opt/roco-seo/config/compose.env -f /opt/roco-seo/app/
 ### Supervisor rollout safeguards
 
 The initial Supervisor can analyze only frozen opportunities scoring at least 75, with a $0.10/run ceiling, one attempt, 12 KB request cap and 2,048 total completion tokens. Truncated output fails safely rather than triggering paid repair calls. No specialist or automatic AI schedule is enabled. The $20 shared monthly cap uses conservative estimated/reserved charges; it does not control other applications using the same provider account. The credential/model metadata probe makes no inference request. Connect Google and generate healthy real opportunities before the first live recommendation evaluation.
+
+## Integrations dashboard
+
+Use the Integrations sidebar view to inspect agent activation, worker health, OpenAI key/model access and the application budget before any analysis. Operators can request a metadata-only check; viewers cannot. Checks also run at startup/every 15 minutes. Worker status expires after 45 seconds and checks after 20 minutes. Google cards show deployment configuration and selected-site stored history, not live credential validation. See `INTEGRATIONS_STATUS.md` for recovery and failure semantics.

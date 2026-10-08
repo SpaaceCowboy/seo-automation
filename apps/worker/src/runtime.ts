@@ -7,11 +7,18 @@ import { createOpenAiProvider, type LLMProvider } from "@roco/llm";
 import { createAnalysisHandler } from "./jobs/analyze-opportunity.js";
 import { createDetectionHandler } from "./jobs/detect-opportunities.js";
 import { PgBoss } from "pg-boss";
+import { OPENAI_CONNECTION_QUEUE } from "@roco/shared/control";
+import {
+  createOpenaiCheckHandler,
+  integrationSnapshot,
+  newRuntimeInstance,
+} from "./jobs/check-openai.js";
 import { startWorkerHealth } from "./health.js";
 
 import type { WorkerConfig } from "@roco/config";
 import {
   createDatabase,
+  createIntegrationStatusRepository,
   createCrawlRepository,
   createIntegrationRepository,
   createOpportunityRepository,
@@ -145,6 +152,20 @@ export function createWorkerRuntime(
     !config.WORKFLOW_MEASUREMENT_ACTOR_ID
   )
     throw new Error("Enabled measurement schedules require a service actor.");
+  let diagnosticPolicy = agentPolicy;
+  if (!diagnosticPolicy && config.LLM_POLICY_JSON) {
+    try {
+      diagnosticPolicy = policySchema.parse(JSON.parse(config.LLM_POLICY_JSON));
+    } catch {
+      logger.warn(
+        { errorCode: "INTEGRATION_POLICY_UNAVAILABLE" },
+        "disabled agent policy is unavailable for diagnostics",
+      );
+    }
+  }
+  const integrationStatus = createIntegrationStatusRepository(database.pool);
+  const integrationInstance = newRuntimeInstance();
+  let integrationPublished = false;
   let started = false;
   let stopHealth: (() => Promise<void>) | undefined;
   database.pool.on("error", (error) =>
@@ -366,12 +387,44 @@ export function createWorkerRuntime(
         );
       }
 
+      await boss.createQueue(OPENAI_CONNECTION_QUEUE, {
+        retryLimit: 0,
+        expireInSeconds: 60,
+        deleteAfterSeconds: 604800,
+      });
+      await boss.work(
+        OPENAI_CONNECTION_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: 2 },
+        createOpenaiCheckHandler({
+          repository: integrationStatus,
+          instanceId: integrationInstance,
+          key: config.LLM_OPENAI_API_KEY,
+          logger,
+        }),
+      );
+      await boss.schedule(
+        OPENAI_CONNECTION_QUEUE,
+        "*/15 * * * *",
+        { dispatch: true, trigger: "SCHEDULED" },
+        { tz: "UTC", key: "openai-access" },
+      );
+      await integrationStatus.publish(
+        integrationInstance,
+        integrationSnapshot(config, diagnosticPolicy),
+      );
+      integrationPublished = true;
+      await boss.send(OPENAI_CONNECTION_QUEUE, {
+        dispatch: true,
+        trigger: "STARTUP",
+      });
       started = true;
       if (config.NODE_ENV !== "test")
         stopHealth = startWorkerHealth(
           config.WORKER_HEALTH_FILE,
           database,
           logger,
+          (healthy) =>
+            integrationStatus.heartbeat(integrationInstance, healthy),
         );
       logger.info(
         {
@@ -385,6 +438,16 @@ export function createWorkerRuntime(
     },
     async stop() {
       await stopHealth?.();
+      if (integrationPublished) {
+        try {
+          await integrationStatus.stop(integrationInstance);
+        } catch {
+          logger.error(
+            { errorCode: "WORKER_TELEMETRY_STOP_FAILED" },
+            "worker telemetry shutdown failed",
+          );
+        }
+      }
       logger.info("worker shutdown started");
       try {
         await boss.stop({

@@ -937,3 +937,5 @@ export const pagespeedSnapshots = pgTable(
 export * from "./opportunity-schema.js";
 export * from "./agent-schema.js";
 export * from "./workflow-schema.js";
+
+export * from "./integration-status-schema.js";

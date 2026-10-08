@@ -18,6 +18,7 @@ import {
   errorMessage,
 } from "../lib/presentation";
 import { Badge, Evidence } from "./evidence";
+import { Integrations } from "./integrations";
 import { Detail } from "./detail";
 const sections: [ControlSection, string, string][] = [
   ["overview", "Overview", "01"],
@@ -31,6 +32,7 @@ const sections: [ControlSection, string, string][] = [
   ["measurements", "Measurements", "09"],
   ["signals", "Alerts / failures", "10"],
   ["freshness", "Data freshness", "11"],
+  ["integrations", "Integrations", "12"],
 ];
 const hints: Record<ControlSection, string> = {
   overview: "The evidence behind today’s decisions.",
@@ -44,6 +46,7 @@ const hints: Record<ControlSection, string> = {
   measurements: "Compare observed outcomes at 30, 60 and 90 days.",
   signals: "Existing operational failures; technical findings live in Health.",
   freshness: "Last attempts, successful observations and failed collections.",
+  integrations: "Agent activation, provider access and collection setup.",
 };
 async function request(path: string, init?: RequestInit) {
   const response = await fetch("/api/control" + path, {
@@ -106,6 +109,12 @@ export function ControlCenter({
     return () => abort.abort();
   }, []);
   useEffect(() => {
+    if (section === "integrations") {
+      setLoading(false);
+      setList(null);
+      setError("");
+      return;
+    }
     if (!siteId) return;
     const abort = new AbortController();
     setLoading(true);
@@ -313,12 +322,21 @@ export function ControlCenter({
               <p>{hints[section]}</p>
             </div>
             <button
-              disabled={!siteId || loading}
+              disabled={(section !== "integrations" && !siteId) || loading}
               onClick={() => setRefresh((r) => r + 1)}
             >
               Refresh data
             </button>
           </div>
+          {section === "integrations" && (
+            <Integrations
+              siteId={siteId}
+              csrf={csrf}
+              operator={operator}
+              refresh={refresh}
+              locale={locale}
+            />
+          )}
           {notice && (
             <p role="status" className="notice">
               {notice}
@@ -331,7 +349,7 @@ export function ControlCenter({
               <a href="/sign-in">Sign in</a>
             </div>
           )}
-          {!loading && !siteId && !error && (
+          {!loading && !siteId && !error && section !== "integrations" && (
             <div className="empty">
               <h2>No registered sites</h2>
               <p>
@@ -340,173 +358,180 @@ export function ControlCenter({
               </p>
             </div>
           )}
-          {section !== "overview" && section !== "freshness" && (
-            <form
-              key={section}
-              ref={filterForm}
-              className="filters"
-              onSubmit={applyFilters}
-            >
-              {[
-                "issues",
-                "opportunities",
-                "agents",
-                "recommendations",
-                "changes",
-                "measurements",
-                "signals",
-                "crawls",
-              ].includes(section) && (
-                <label>
-                  Status
-                  <select aria-label="Status" name="status" defaultValue="">
-                    <option value="">All statuses</option>
-                    {(section === "issues"
-                      ? ["OBSERVED", "NOT_OBSERVED"]
-                      : section === "opportunities"
-                        ? [
-                            "OPEN",
-                            "ACKNOWLEDGED",
-                            "STALE",
-                            "DISMISSED",
-                            "RESOLVED",
-                          ]
-                        : section === "recommendations"
+          {section !== "overview" &&
+            section !== "freshness" &&
+            section !== "integrations" && (
+              <form
+                key={section}
+                ref={filterForm}
+                className="filters"
+                onSubmit={applyFilters}
+              >
+                {[
+                  "issues",
+                  "opportunities",
+                  "agents",
+                  "recommendations",
+                  "changes",
+                  "measurements",
+                  "signals",
+                  "crawls",
+                ].includes(section) && (
+                  <label>
+                    Status
+                    <select aria-label="Status" name="status" defaultValue="">
+                      <option value="">All statuses</option>
+                      {(section === "issues"
+                        ? ["OBSERVED", "NOT_OBSERVED"]
+                        : section === "opportunities"
                           ? [
-                              "DRAFT",
-                              "READY_FOR_REVIEW",
-                              "APPROVED",
-                              "REJECTED",
-                              "CHANGES_REQUESTED",
-                              "IMPLEMENTED",
-                              "CANCELLED",
+                              "OPEN",
+                              "ACKNOWLEDGED",
+                              "STALE",
+                              "DISMISSED",
+                              "RESOLVED",
                             ]
-                          : section === "changes" || section === "measurements"
-                            ? ["IMPLEMENTED", "REVERTED"]
-                            : [
-                                "QUEUED",
-                                "RUNNING",
-                                "SUCCEEDED",
-                                "FAILED",
-                                "PARTIAL",
+                          : section === "recommendations"
+                            ? [
+                                "DRAFT",
+                                "READY_FOR_REVIEW",
+                                "APPROVED",
+                                "REJECTED",
+                                "CHANGES_REQUESTED",
+                                "IMPLEMENTED",
                                 "CANCELLED",
                               ]
-                    ).map((v) => (
-                      <option key={v} value={v}>
-                        {label(v)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {["issues", "signals"].includes(section) && (
-                <label>
-                  Severity
-                  <select aria-label="Severity" name="severity">
-                    <option value="">All severities</option>
-                    {["CRITICAL", "ERROR", "WARNING", "INFO"].map((v) => (
-                      <option key={v}>{v}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {["issues", "opportunities", "recommendations"].includes(
-                section,
-              ) && (
-                <label>
-                  {section === "recommendations" ? "Risk" : "Type"}
-                  <input
-                    name="type"
-                    placeholder={
-                      section === "issues"
-                        ? "Rule code"
-                        : section === "opportunities"
-                          ? "CTR, DECAY…"
-                          : "LOW, MEDIUM, HIGH…"
-                    }
-                  />
-                </label>
-              )}
-              {[
-                "issues",
-                "opportunities",
-                "recommendations",
-                "performance",
-                "changes",
-                "measurements",
-              ].includes(section) && (
-                <label>
-                  Page URL
-                  <input
-                    name="pageUrl"
-                    type="url"
-                    placeholder="Exact page URL (optional)"
-                  />
-                </label>
-              )}
-              {section === "issues" && (
-                <label>
-                  Crawl ID
-                  <input
-                    name="crawlId"
-                    placeholder="Latest successful by default"
-                  />
-                </label>
-              )}
-              {section === "opportunities" && (
-                <>
-                  <label>
-                    Minimum score
-                    <input name="minScore" type="number" min="0" max="100" />
-                  </label>
-                  <label>
-                    Sort
-                    <select aria-label="Sort" name="sort">
-                      <option value="score">Highest priority</option>
-                      <option value="recent">Most recent</option>
+                            : section === "changes" ||
+                                section === "measurements"
+                              ? ["IMPLEMENTED", "REVERTED"]
+                              : [
+                                  "QUEUED",
+                                  "RUNNING",
+                                  "SUCCEEDED",
+                                  "FAILED",
+                                  "PARTIAL",
+                                  "CANCELLED",
+                                ]
+                      ).map((v) => (
+                        <option key={v} value={v}>
+                          {label(v)}
+                        </option>
+                      ))}
                     </select>
                   </label>
-                </>
-              )}
-              {section === "performance" && (
-                <>
+                )}
+                {["issues", "signals"].includes(section) && (
                   <label>
-                    Dataset
-                    <select aria-label="Dataset" name="dataset">
-                      {["PAGE", "QUERY", "PAGE_QUERY", "GA4", "PAGESPEED"].map(
-                        (v) => (
+                    Severity
+                    <select aria-label="Severity" name="severity">
+                      <option value="">All severities</option>
+                      {["CRITICAL", "ERROR", "WARNING", "INFO"].map((v) => (
+                        <option key={v}>{v}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {["issues", "opportunities", "recommendations"].includes(
+                  section,
+                ) && (
+                  <label>
+                    {section === "recommendations" ? "Risk" : "Type"}
+                    <input
+                      name="type"
+                      placeholder={
+                        section === "issues"
+                          ? "Rule code"
+                          : section === "opportunities"
+                            ? "CTR, DECAY…"
+                            : "LOW, MEDIUM, HIGH…"
+                      }
+                    />
+                  </label>
+                )}
+                {[
+                  "issues",
+                  "opportunities",
+                  "recommendations",
+                  "performance",
+                  "changes",
+                  "measurements",
+                ].includes(section) && (
+                  <label>
+                    Page URL
+                    <input
+                      name="pageUrl"
+                      type="url"
+                      placeholder="Exact page URL (optional)"
+                    />
+                  </label>
+                )}
+                {section === "issues" && (
+                  <label>
+                    Crawl ID
+                    <input
+                      name="crawlId"
+                      placeholder="Latest successful by default"
+                    />
+                  </label>
+                )}
+                {section === "opportunities" && (
+                  <>
+                    <label>
+                      Minimum score
+                      <input name="minScore" type="number" min="0" max="100" />
+                    </label>
+                    <label>
+                      Sort
+                      <select aria-label="Sort" name="sort">
+                        <option value="score">Highest priority</option>
+                        <option value="recent">Most recent</option>
+                      </select>
+                    </label>
+                  </>
+                )}
+                {section === "performance" && (
+                  <>
+                    <label>
+                      Dataset
+                      <select aria-label="Dataset" name="dataset">
+                        {[
+                          "PAGE",
+                          "QUERY",
+                          "PAGE_QUERY",
+                          "GA4",
+                          "PAGESPEED",
+                        ].map((v) => (
                           <option key={v}>{v}</option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-                  <label>
-                    From
-                    <input name="startDate" type="date" />
-                  </label>
-                  <label>
-                    Through
-                    <input name="endDate" type="date" />
-                  </label>
-                  <label>
-                    PageSpeed strategy
-                    <select aria-label="PageSpeed strategy" name="strategy">
-                      <option>mobile</option>
-                      <option>desktop</option>
-                    </select>
-                  </label>
-                </>
-              )}
-              {section === "agents" && filters.opportunityId && (
-                <input
-                  type="hidden"
-                  name="opportunityId"
-                  value={filters.opportunityId}
-                />
-              )}
-              <button type="submit">Apply filters</button>
-            </form>
-          )}
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      From
+                      <input name="startDate" type="date" />
+                    </label>
+                    <label>
+                      Through
+                      <input name="endDate" type="date" />
+                    </label>
+                    <label>
+                      PageSpeed strategy
+                      <select aria-label="PageSpeed strategy" name="strategy">
+                        <option>mobile</option>
+                        <option>desktop</option>
+                      </select>
+                    </label>
+                  </>
+                )}
+                {section === "agents" && filters.opportunityId && (
+                  <input
+                    type="hidden"
+                    name="opportunityId"
+                    value={filters.opportunityId}
+                  />
+                )}
+                <button type="submit">Apply filters</button>
+              </form>
+            )}
           {loading && (
             <div className="empty" role="status">
               Loading stored observations…
@@ -628,6 +653,7 @@ export function ControlCenter({
               {error}
             </p>
           )}
+
           {notice && (
             <p role="status" className="notice">
               {notice}

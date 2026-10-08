@@ -4,11 +4,13 @@ import {
   createDatabase,
   migrateDatabase,
   createControlRepository,
+  createIntegrationStatusRepository,
   createWorkflowRepository,
   createMeasurementRepository,
 } from "../../packages/db/src/index.js";
 import { createLogger } from "../../packages/shared/src/index.js";
 import { buildApp } from "../../apps/api/src/app.js";
+import { statusSnapshot } from "../../packages/shared/test/integration-fixture.js";
 import { seedControl } from "./fixture.js";
 const url = process.env.TEST_DATABASE_URL;
 if (
@@ -23,6 +25,7 @@ const db = createDatabase(url),
   workflow = createWorkflowRepository(db.db),
   measurements = createMeasurementRepository(db.db),
   control = createControlRepository(db.db);
+const integrationStatus = createIntegrationStatusRepository(db.pool);
 const operatorToken = randomUUID() + randomUUID(),
   viewerToken = randomUUID() + randomUUID();
 let fixture: Awaited<ReturnType<typeof seedControl>>,
@@ -31,6 +34,19 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   await migrateDatabase(db.pool);
   fixture = await seedControl(db.pool);
+  const instance = randomUUID();
+  await integrationStatus.publish(instance, statusSnapshot());
+  const first = await integrationStatus.request("STARTUP");
+  await db.pool.query(
+    "update integration_connection_checks set requested_at=now()-interval '61 seconds' where id=$1",
+    [first.id],
+  );
+  await integrationStatus.finish(first.id, {
+    status: "VERIFIED",
+    errorCode: null,
+    httpStatus: 200,
+    durationMs: 1,
+  });
   const access = JSON.stringify([
     {
       token: operatorToken,
@@ -46,7 +62,23 @@ test.beforeAll(async () => {
       level: "silent",
     }),
     readiness: () => Promise.resolve({ database: true, queue: true }),
-    control,
+    control: {
+      ...control,
+      integrations: (site, p) => integrationStatus.read(site, p),
+      async checkOpenai(p) {
+        const ticket = await integrationStatus.request("MANUAL", p);
+        if (ticket.enqueue) {
+          await integrationStatus.claim(ticket.id, ticket.instanceId);
+          await integrationStatus.finish(ticket.id, {
+            status: "VERIFIED",
+            errorCode: null,
+            httpStatus: 200,
+            durationMs: 1,
+          });
+        }
+        return ticket;
+      },
+    },
     workflowAccess: access,
     workflow: {
       async invoke(op, site, id, body, p) {
@@ -377,4 +409,68 @@ test("request changes, revise and reject without creating an implementation", as
       )
     ).rows[0]?.count,
   ).toBe(1);
+});
+
+test("integration availability, free manual checks, viewer restriction and RTL", async ({
+  page,
+}) => {
+  await login(page);
+  await nav(page, "Integrations");
+  await expect(
+    page.getByRole("heading", { name: "Agent availability" }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".integration-agent").filter({ hasText: "SEO Supervisor" }),
+  ).toContainText("Enabled");
+  await expect(
+    page.locator(".integration-agent").filter({ hasText: "Content" }),
+  ).toContainText("Inactive");
+  await expect(
+    page.getByText("Key/model access verified", { exact: true }),
+  ).toBeVisible();
+  const before = (
+    await db.pool.query<{ n: number }>(
+      "select count(*)::int as n from agent_invocations",
+    )
+  ).rows[0]!.n;
+  await page
+    .getByRole("button", { name: "Check connection", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Check connection", exact: true }),
+  ).toBeDisabled();
+  expect(
+    (
+      await db.pool.query<{ n: number }>(
+        "select count(*)::int as n from agent_invocations",
+      )
+    ).rows[0]!.n,
+  ).toBe(before);
+  await page.getByRole("button", { name: "فارسی / RTL" }).click();
+  await expect(page.locator(".workspace")).toHaveAttribute("dir", "rtl");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "tmp/integrations-mobile-rtl.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  await page.screenshot({
+    path: "tmp/integrations-desktop.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/sign-in/);
+  await login(page, viewerToken);
+  await nav(page, "Integrations");
+  await expect(
+    page.getByRole("heading", { name: "Agent availability" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Check connection", exact: true }),
+  ).toHaveCount(0);
 });

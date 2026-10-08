@@ -268,3 +268,7 @@ See `runbooks/dashboard.md` for operating instructions and `PHASE_7_VALIDATION.m
 ## Phase 7.5 production runtime
 
 `infrastructure/compose.production.yaml` deploys PostgreSQL, a one-shot migrator, API, worker, dashboard and Nginx. The base configuration publishes a loopback Nginx port. The user-approved HTTPS overlay publishes 80/443 for `scc.rocobroker.com`; it proxies only the dashboard BFF, never direct Fastify routes. The operational wrapper selects this overlay using `config/https.enabled`. Certificate live/archive directories and an ACME webroot are mounted read-only into Nginx; host Certbot manages renewal and validates/reloads the proxy. Operations use a profile-scoped CLI with mounted credentials. File secret loading is shared in config, including migrations. The worker reconciles persisted schedules and writes a database/queue heartbeat after handler registration. PostgreSQL stores delayed work and measurement plans across process restarts. See `OPERATIONS.md` for startup order, health limitations, encrypted recovery and provider setup.
+
+## Integrations operational status
+
+The worker alone checks provider access and publishes safe PostgreSQL telemetry. Authenticated control endpoints project runtime status, agent activation, shared budget and existing Google sync history. A dedicated pg-boss metadata queue handles startup/quarter-hour/manual checks; it never creates AI analysis. See `INTEGRATIONS_STATUS.md`.

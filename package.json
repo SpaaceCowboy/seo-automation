@@ -23,7 +23,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "test": "pnpm build:packages && vitest run --exclude '**/*.integration.test.ts'",
-    "test:integration": "pnpm build:packages && vitest run packages/db/test/migrations.integration.test.ts && vitest run tests/integration/opportunities.integration.test.ts && vitest run tests/integration/agents.integration.test.ts && vitest run tests/integration/workflow.integration.test.ts && vitest run tests/integration/control.integration.test.ts && vitest run tests/integration/reliability.integration.test.ts",
+    "test:integration": "pnpm build:packages && vitest run packages/db/test/migrations.integration.test.ts && vitest run tests/integration/opportunities.integration.test.ts && vitest run tests/integration/agents.integration.test.ts && vitest run tests/integration/workflow.integration.test.ts && vitest run tests/integration/control.integration.test.ts && vitest run tests/integration/reliability.integration.test.ts && vitest run tests/integration/integration-status.integration.test.ts",
     "test:all": "pnpm test && pnpm test:integration",
     "typecheck": "pnpm build:packages && pnpm --recursive --if-present typecheck && pnpm exec tsc -p scripts/tsconfig.json --noEmit && pnpm exec tsc -p tests/tsconfig.json --noEmit",
     "opportunities:validate": "pnpm build:packages && pnpm --filter @roco/db exec tsx ../../scripts/operations/validate-opportunities.ts",

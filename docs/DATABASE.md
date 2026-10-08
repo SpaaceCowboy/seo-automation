@@ -259,3 +259,7 @@ Issue comparisons use only successful crawls/analyses and expose first/last dete
 ## Phase 7.5 operations
 
 No new schema migration is introduced. Production uses PostgreSQL 17 with a dedicated non-superuser application login. The default domain statement timeout is 30 seconds; operational inspection uses a read-only transaction with a 5-second timeout. Encrypted custom-format dumps include domain history and queue state. Restore creates only a new isolated `roco_restore_*` database and never switches production connections. The daily job also creates a separate encrypted configuration/secrets archive, excluding the offline decryption identity. Recurring offsite durability requires administrator setup. See `OPERATIONS.md`.
+
+## Integration status schema
+
+Additive migration 0007 adds operational worker telemetry and indexed connection-check history. Worker boot identity fences stale credentials/configuration; completed check records cannot be updated/deleted. The existing shared UTC-month budget ledger remains authoritative. This telemetry does not create crawl/Google/agent evidence.

@@ -340,3 +340,10 @@
 - Decision: Follow proposal section 22: activate only the SEO Supervisor, using GPT-6.1 Sol with medium reasoning and a $20 monthly deployment limit. Add a validated execution mode, optional inactive routes, independent database plan enforcement, immutable score eligibility and compact request/completion caps. Keep the user-preferred GPT-6 Luna specialist routes inactive until later approval.
 - Rationale: The original proposal's initial MVP calls for Supervisor-first validation; the full five-agent implementation does not require simultaneous activation.
 - Tradeoffs: Preserve legacy specialist policies through an explicit default. New Supervisor prompts are version v2; pending old prompt versions or changed frozen execution modes need a new run. Score 75 is an initial configurable budget gate, not detector retuning. Monthly caps cover this application's conservative usage accounting, not unrelated key/account spending. Live recommendation validation still needs actual Google/opportunity evidence.
+
+## ADR-044: Worker-owned availability checks and durable operational status
+
+- Status: Accepted — explicit user-approved implementation plan
+- Decision: Add a dedicated Integrations view and authenticated control endpoints. The worker publishes safe boot-scoped status and performs fixed-origin model metadata checks at startup, every 15 minutes and manually. Preserve check history independently of AI runs and derive budgets from the existing ledger.
+- Rationale: Agent availability must be visible before analysis, without exposing provider credentials to API/dashboard or fabricating recommendation evidence.
+- Tradeoffs: A successful metadata check proves only key/model access. One worker is supported; stale telemetry is labelled rather than inferred as provider failure. An additive migration stores operational status/check history. No new Google probes or paid inference are introduced.

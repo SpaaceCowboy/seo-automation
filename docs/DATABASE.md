@@ -194,3 +194,68 @@ Migration `0002_phase3_google_data.sql` adds:
 Daily GSC and GA4 rows are upserted by provider-domain natural keys, so replaying a date window updates rather than doubles metrics. PageSpeed remains append-oriented by exact collection timestamp. Each mapped dataset stores the observed URL, normalized URL/hash, and normalization version; `page_id` is nullable so in-scope Google-only URLs remain observable without manufacturing crawler identity.
 
 GSC dimension tables must be queried independently. Metrics from page-only, query-only, and page/query datasets can be filtered or reconciled but must not be summed as if they were disjoint observations.
+
+## 11. Phase 4 implemented schema
+
+Additive migration `0004_phase4_opportunities.sql` adds five tables and three enums:
+
+- `scoring_configs`: site-scoped immutable configuration publications, exact content hash and descriptive version
+- `opportunity_runs`: unique site/idempotency command, config/detector version, analysis window, frozen source snapshot, attempt count, status/errors/timings/statistics
+- `opportunities`: unique site/fingerprint current projection, target IDs/URL, type/status, score and first/last detection timestamps
+- `opportunity_scores`: one immutable scored candidate/evidence observation per run/opportunity with config provenance
+- `opportunity_events`: append-only detector lifecycle transitions; operator transitions use existing attributable `audit_events`
+
+Enums contain all six detector types, OPEN/ACKNOWLEDGED/RESOLVED/DISMISSED/STALE lifecycle states, and QUEUED/RUNNING/SUCCEEDED/FAILED run states. Indexes support site/status/score lists, type/page filters, historical observation lookup and analysis windows. Score checks enforce 0–100. Foreign keys retain run/config/page/query provenance. No existing Phase 1–3 schema or observations are changed.
+
+Database triggers reject config/score/detector-event updates/deletions, run deletion, successful-run changes and changes to captured input/command fields. A new config or run is required to reinterpret source data. Input capture uses repeatable-read transactions; persistence and projection are atomic under a site advisory transaction lock. Replayed delivery returns the existing completed result. Daily source upserts never overwrite previously frozen inputs.
+
+The current `opportunities` row is deliberately a projection; authoritative historical evidence and scores stay append-oriented. Query-group candidates use nullable page/URL targets rather than arbitrary competing pages. Complete histories remain queryable even though detail responses cap each history collection at 100 entries.
+
+Forward recovery: disable Phase 4 consumers/routes and retain its tables/evidence while repairing. Do not drop tables or rewrite applied migrations. Frozen input snapshots increase storage; measure growth before proposing retention/partitioning changes under the existing ADRs.
+
+## 12. Phase 5 implemented schema
+
+Additive migration `0005_phase5_agents.sql` introduces:
+
+- `agent_runs`: site/opportunity/source score/operator identity, frozen policy, prompt/schema versions, status/outcome, attempts, invocation count, booked integer cost and timestamps.
+- `agent_evidence`: one immutable minimized/versioned/content-hashed evidence bundle per workflow, with exact source references.
+- `agent_invocations`: unique run/agent/attempt identity, provider/model/version/input hash, UTC budget month, reserved/settled cost basis, token usage, HTTP status/request ID, safe error/retry classification and latency.
+- `agent_outputs`: only schema/grounding-validated analysis, with a matching Supervisor DRAFT/non-executable attachment allowed once.
+- `agent_budget_months`: rebuildable deployment-wide UTC-month reservation/spend projection and conservative active ceiling.
+
+A workflow source selects the most recent analysis window, avoiding backfill insertion-order regression. Trigger serialization and unique site/idempotency keys prevent duplicate workflow identities. Calls are recorded before provider egress. Monthly budget locks plus row locks make reserve/settle accounting atomic; per-run session locks serialize workflows without holding transactions across external requests.
+
+All costs/prices are integer nanodollars, using `BigInt` and integer-scale PostgreSQL `numeric`, returned as strings. Unknown/interrupted usage retains its reservation rather than becoming zero. Completed histories, evidence and call identities are guarded against mutation/deletion. Validated analysis cannot be replaced; a matching non-executable draft can be attached once. Operator triggers/retries append `audit_events`.
+
+No `recommendations`, `recommendation_versions`, `approval_decisions`, Change Ledger or measurement tables are created. Those remain Phase 6. Disable consumers and retain evidence for forward recovery; do not rewrite shared migrations or drop history.
+
+## 13. Phase 6 implemented schema
+
+Additive migration `0006_phase6_workflow.sql` creates ten approved-domain/support tables:
+
+- `recommendations`: stable source action/site/page/mode and current state/version projection.
+- `recommendation_versions`: immutable numbered concrete proposal/rule/risk/confidence with source linkage through the recommendation.
+- `recommendation_events`: immutable lifecycle/revision/implementation history.
+- `approval_decisions`: immutable current-version human review and role-at-decision snapshots; approved versions are unique.
+- `change_ledger_entries`: immutable approved-version manual implementation values/actor/time/reference/mode; unique version and site command key.
+- `change_events`: immutable revert/metadata correction events; one revert per implementation.
+- `change_baselines`: immutable numbered capture-time aggregates/provenance over the fixed pre-change window.
+- `measurement_plans`: unique change/horizon definitions, durable maturity/due dates and scheduling projection.
+- `measurement_runs`: unique plan/attempt key, actor/correlation and retry/status/timestamp metadata.
+- `measurement_results`: immutable run/plan/baseline-version comparison/outcome/provenance/overlap records, one result per run.
+
+Enums cover review state, SANDBOX/PRODUCTION, risk, operational measurement state and the five result states. Indexes support awaiting-review queues, page/time overlaps, baseline/version history and due-plan dispatch. Role/value/lifecycle validation remains in application contracts; cross-record database guards also block stale/unapproved ledger insertion, service approvals, old-version approvals and immutable history updates/deletions.
+
+Baseline, plans and ledger commit together. Result creation, classified audit events and plan/run completion are transactional. Retrying a run returns its original result; a new attempt preserves another observation. Late baseline recapture never rewrites earlier results. Comparison uses PAGE metrics separately from query datasets and preserves optional/missing data explicitly.
+
+Disabling consumers preserves all business history for forward recovery; no existing Phase 1–5 schema or shared migration is destructively changed. Metadata correction/revert records never overwrite ledger values or perform physical rollback.
+
+## 14. Phase 7 read projections
+
+Phase 7 adds no tables or migrations. `control-repository.ts` reads existing site/run/observation/workflow history through parameterized SQL and Drizzle. Lists use site filters, bounded limit/offset and stable tie-break sorting; expensive reads use READ ONLY transactions with five-second statement timeouts. Google datasets are aggregated independently with explicit dates and successful-source/final-data gates. Current opportunity components refer to `last_run_id`, preserving consistency when an older backfill is inserted later.
+
+Issue comparisons use only successful crawls/analyses and expose first/last detection plus OBSERVED/NOT_OBSERVED without overwriting occurrences or inferring repair from an absent bounded page. Existing workflow detail/history limits remain in force. The database remains inaccessible to dashboard/browser code. Named session authority lives in the API's existing registry and active `actors`; the bounded single-process dashboard session store has no database identity/password table.
+
+## Phase 7.5 operations
+
+No new schema migration is introduced. Production uses PostgreSQL 17 with a dedicated non-superuser application login. The default domain statement timeout is 30 seconds; operational inspection uses a read-only transaction with a 5-second timeout. Encrypted custom-format dumps include domain history and queue state. Restore creates only a new isolated `roco_restore_*` database and never switches production connections. The daily job also creates a separate encrypted configuration/secrets archive, excluding the offline decryption identity. Recurring offsite durability requires administrator setup. See `OPERATIONS.md`.

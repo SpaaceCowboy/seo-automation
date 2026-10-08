@@ -29,6 +29,27 @@
       "when": 1790672500000,
       "tag": "0003_phase3_unmatched_urls",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791210390287,
+      "tag": "0004_phase4_opportunities",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791281260320,
+      "tag": "0005_phase5_agents",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791367222832,
+      "tag": "0006_phase6_workflow",
+      "breakpoints": true
     }
   ]
 }

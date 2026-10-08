@@ -1,10 +1,22 @@
+import {
+  createMeasurementHandler,
+  createMeasurementDispatcher,
+} from "./jobs/measure-change.js";
+import { policySchema, type AgentPolicy } from "@roco/agents";
+import { createOpenAiProvider, type LLMProvider } from "@roco/llm";
+import { createAnalysisHandler } from "./jobs/analyze-opportunity.js";
+import { createDetectionHandler } from "./jobs/detect-opportunities.js";
 import { PgBoss } from "pg-boss";
+import { startWorkerHealth } from "./health.js";
 
 import type { WorkerConfig } from "@roco/config";
 import {
   createDatabase,
   createCrawlRepository,
   createIntegrationRepository,
+  createOpportunityRepository,
+  createAgentRepository,
+  createMeasurementRepository,
   createFoundationJobRepository,
   type DatabaseClient,
 } from "@roco/db";
@@ -16,6 +28,10 @@ import {
 } from "@roco/integrations";
 import {
   CRAWL_SITE_QUEUE,
+  OPPORTUNITY_DETECTION_QUEUE,
+  AGENT_ANALYSIS_QUEUE,
+  CHANGE_MEASUREMENT_QUEUE,
+  MEASUREMENT_DISPATCH_QUEUE,
   GA4_SYNC_QUEUE,
   GOOGLE_SYNC_DISPATCH_QUEUE,
   GSC_BACKFILL_QUEUE,
@@ -87,13 +103,62 @@ export function createWorkerRuntime(
       ? {}
       : { apiKey: config.PAGESPEED_API_KEY }),
   });
+  const opportunityRepository = createOpportunityRepository(database.db);
+  const agentRepository = createAgentRepository(database.db, database.pool);
+  let agentPolicy: AgentPolicy | null = null;
+  const agentProviders = new Map<string, LLMProvider>();
+  if (config.AGENTS_ENABLED) {
+    if (!config.LLM_POLICY_JSON || !config.LLM_OPENAI_API_KEY)
+      throw new Error(
+        "Enabled agents require LLM_POLICY_JSON and LLM_OPENAI_API_KEY.",
+      );
+    try {
+      agentPolicy = policySchema.parse(JSON.parse(config.LLM_POLICY_JSON));
+    } catch {
+      throw new Error(
+        "LLM_POLICY_JSON does not match the agent policy contract.",
+      );
+    }
+    if (
+      (agentPolicy.executionMode === "SUPERVISOR_ONLY"
+        ? [agentPolicy.routes.SUPERVISOR]
+        : Object.values(agentPolicy.routes)
+      ).some(
+        (route) =>
+          !route ||
+          route.provider !== "openai" ||
+          route.inputNanousdPerToken <= 0 ||
+          route.outputNanousdPerToken <= 0,
+      )
+    )
+      throw new Error(
+        "Runtime routes require the installed OpenAI adapter and explicit positive token pricing.",
+      );
+    agentProviders.set(
+      "openai",
+      createOpenAiProvider(config.LLM_OPENAI_API_KEY),
+    );
+  }
+  const measurements = createMeasurementRepository(database.db);
+  if (
+    config.WORKFLOW_SCHEDULES_ENABLED &&
+    !config.WORKFLOW_MEASUREMENT_ACTOR_ID
+  )
+    throw new Error("Enabled measurement schedules require a service actor.");
   let started = false;
+  let stopHealth: (() => Promise<void>) | undefined;
+  database.pool.on("error", (error) =>
+    logger.error({ err: error }, "worker database connection failed"),
+  );
 
   boss.on("error", (error) => {
     logger.error({ err: error }, "pg-boss error");
   });
   boss.on("warning", (warning) => {
-    logger.warn({ warning }, "pg-boss warning");
+    logger.warn(
+      { errorCode: "QUEUE_WARNING", warningType: typeof warning },
+      "pg-boss warning",
+    );
   });
 
   return {
@@ -110,6 +175,73 @@ export function createWorkerRuntime(
         expireInSeconds: 60,
         deleteAfterSeconds: 86_400,
       });
+      await boss.createQueue(OPPORTUNITY_DETECTION_QUEUE, {
+        retryLimit: 2,
+        retryDelay: 30,
+        retryBackoff: true,
+        expireInSeconds: 1800,
+        deleteAfterSeconds: 604800,
+      });
+      await boss.work(
+        OPPORTUNITY_DETECTION_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: 2 },
+        createDetectionHandler({ repository: opportunityRepository, logger }),
+      );
+      await boss.createQueue(AGENT_ANALYSIS_QUEUE, {
+        retryLimit: 2,
+        retryDelay: 30,
+        retryBackoff: true,
+        expireInSeconds: 1800,
+        deleteAfterSeconds: 604800,
+      });
+      await boss.work(
+        AGENT_ANALYSIS_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: 2 },
+        createAnalysisHandler({
+          repository: agentRepository,
+          policy: agentPolicy,
+          providers: agentProviders,
+          logger,
+        }),
+      );
+      for (const queue of [
+        CHANGE_MEASUREMENT_QUEUE,
+        MEASUREMENT_DISPATCH_QUEUE,
+      ])
+        await boss.createQueue(queue, {
+          retryLimit: 2,
+          retryDelay: 30,
+          retryBackoff: true,
+          expireInSeconds: 1800,
+          deleteAfterSeconds: 604800,
+        });
+      await boss.work(
+        CHANGE_MEASUREMENT_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: 2 },
+        createMeasurementHandler({ repository: measurements, logger }),
+      );
+      await boss.work(
+        MEASUREMENT_DISPATCH_QUEUE,
+        { batchSize: 1, pollingIntervalSeconds: 2 },
+        createMeasurementDispatcher({
+          repository: measurements,
+          boss,
+          actorId: config.WORKFLOW_MEASUREMENT_ACTOR_ID,
+          logger,
+        }),
+      );
+      if (config.WORKFLOW_SCHEDULES_ENABLED)
+        await boss.schedule(
+          MEASUREMENT_DISPATCH_QUEUE,
+          config.WORKFLOW_MEASUREMENT_SCHEDULE,
+          {},
+          { tz: "UTC", key: "measurement-dispatch" },
+        );
+      else
+        await boss.unschedule(
+          MEASUREMENT_DISPATCH_QUEUE,
+          "measurement-dispatch",
+        );
       await boss.createQueue(CRAWL_SITE_QUEUE, {
         retryLimit: 2,
         retryDelay: 30,
@@ -181,6 +313,7 @@ export function createWorkerRuntime(
           repository: integrationRepository,
           boss,
           properties: { gsc: config.GSC_PROPERTY, ga4: config.GA4_PROPERTY_ID },
+          finalityDays: config.GOOGLE_FINALITY_DAYS,
         }),
       );
       await boss.work(
@@ -196,7 +329,17 @@ export function createWorkerRuntime(
           {},
           { tz: "UTC", key: "foundation-health" },
         );
-      }
+      } else await boss.unschedule(FOUNDATION_NOOP_QUEUE, "foundation-health");
+      // Reconcile persisted schedules on every boot, including disabled/reconfigured properties.
+      for (const [key, enabled] of [
+        ["daily-gsc", config.GOOGLE_SCHEDULES_ENABLED && !!config.GSC_PROPERTY],
+        [
+          "daily-ga4",
+          config.GOOGLE_SCHEDULES_ENABLED && !!config.GA4_PROPERTY_ID,
+        ],
+        ["weekly-pagespeed", config.GOOGLE_SCHEDULES_ENABLED],
+      ] as const)
+        if (!enabled) await boss.unschedule(GOOGLE_SYNC_DISPATCH_QUEUE, key);
       if (
         config.GOOGLE_SCHEDULES_ENABLED &&
         config.GOOGLE_SITE_ID !== undefined
@@ -224,6 +367,12 @@ export function createWorkerRuntime(
       }
 
       started = true;
+      if (config.NODE_ENV !== "test")
+        stopHealth = startWorkerHealth(
+          config.WORKER_HEALTH_FILE,
+          database,
+          logger,
+        );
       logger.info(
         {
           queue: FOUNDATION_NOOP_QUEUE,
@@ -235,17 +384,17 @@ export function createWorkerRuntime(
       );
     },
     async stop() {
-      if (!started) {
-        await database.close();
-        return;
-      }
+      await stopHealth?.();
       logger.info("worker shutdown started");
-      await boss.stop({
-        graceful: true,
-        timeout: config.WORKER_SHUTDOWN_TIMEOUT_MS,
-        close: true,
-      });
-      await database.close();
+      try {
+        await boss.stop({
+          graceful: started,
+          timeout: config.WORKER_SHUTDOWN_TIMEOUT_MS,
+          close: true,
+        });
+      } finally {
+        await database.close();
+      }
       started = false;
       logger.info("worker shutdown completed");
     },

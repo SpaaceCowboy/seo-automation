@@ -31,8 +31,8 @@ Provide one secure, focused internal interface for monitoring, prioritization, a
 - Approval displays exact version, risk, before/after proposal, confidence, and evidence; stale/superseded versions cannot be approved.
 - Ledger views distinguish suggested, approved, executed, measured, and reverted states.
 - Health surfaces show last successful/failed runs, freshness, partial data, and actionable failures.
-- Critical alert rules cover widespread 5xx, unintended noindex, sitemap removal, 404 growth, important canonical change, and severe commercial-page decline.
-- Weekly/monthly reports use documented metric definitions and do not imply guaranteed causality.
+- Existing technical findings and failed/partial collection runs are visible. New critical-regression/spike/commercial-page alert rules are excluded by the current Phase 7 request; the older broader criterion is explicitly deferred (ADR-039).
+- Weekly/monthly date-window inspection uses documented metric definitions and does not imply guaranteed causality. Scheduled report generation/distribution is explicitly deferred under the current existing-domain scope.
 - Keyboard navigation, focus, labels, contrast, and responsive layouts pass agreed accessibility checks.
 - Large lists are paginated/filtered server-side and key views meet an agreed performance budget.
 - End-to-end tests cover authentication, permissions, evidence navigation, approval, and ledger/measurement review.
@@ -45,3 +45,11 @@ Provide one secure, focused internal interface for monitoring, prioritization, a
 ## Exit artifact
 
 A private control-center acceptance walkthrough, access review, alert/report examples, known UX gaps, and an explicit stop before Phase 8.
+
+## Phase 7 implementation status — 2026-10-07
+
+Phase 6 is approved; Phase 7 is implemented and pending review. The user selected named actor credentials with secure application sessions and a compact light interface. Current scope is the private control center over the existing Phases 1–6 domains, with no Phase 8 work.
+
+Implemented areas: overview, technical findings/crawl history, dimension-specific Google date-window views, opportunity score/evidence/history, grounded agent activity/actions, proposal creation/revision, exact-version review, human-attested implementation, Change Ledger, frozen baselines/horizon/result comparisons, existing failures and independent collection freshness. Read projections are server filtered/paginated; private sessions/CSRF and API role checks are enforced. No database/SEO/approval/measurement engine exists in React.
+
+Acceptance evidence and practical performance/a11y limits are in `../PHASE_7_VALIDATION.md`; operating/authentication/troubleshooting is in `../runbooks/dashboard.md`. Broad critical alert/report distribution requirements remain a visible exception because the current user instruction prohibits new alert rules. Dates, samples and controlled virtual-time results establish UI behavior, not live SEO uplift or production deployment readiness. Phase 8 remains unapproved.

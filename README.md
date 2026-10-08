@@ -1,8 +1,8 @@
 # Roco SEO
 
-Roco SEO is an internal SEO intelligence and automation system that operates alongside the existing RocoBroker website. Phase 3 adds historical Google Search Console, GA4 organic landing-page, and PageSpeed ingestion to the Phase 1/2 foundation.
+Roco SEO is an internal SEO intelligence and automation system that operates alongside the existing RocoBroker website. Phase 6 adds immutable recommendation versions, named human review, a manual Change Ledger, frozen baselines and durable 30/60/90-day measurement on top of the approved Phase 1–5 foundation.
 
-No opportunity engine, LLM, recommendation workflow, or production website write capability exists in this phase.
+Approval remains separate from declared human implementation. No production website write, automatic publishing, automatic rollback or full dashboard capability exists.
 
 ## Prerequisites
 
@@ -138,6 +138,51 @@ Invoke-RestMethod "http://127.0.0.1:4000/sites/$siteId/integrations/freshness"
 
 Use `mode='backfill'` with explicit dates for a historical GSC/GA4 import. PageSpeed accepts at most 20 approved-scope `urls` and `mobile`/`desktop` `strategies`. Scheduled imports remain disabled until `GOOGLE_SCHEDULES_ENABLED=true`; defaults are daily GSC/GA4 and weekly canonical-page PageSpeed collection. Full setup and recovery details are in [docs/runbooks/google-integrations.md](docs/runbooks/google-integrations.md).
 
+## Detect and inspect SEO opportunities
+
+Set a private `OPPORTUNITY_API_TOKEN` (at least 32 random characters), then start the existing API and worker. Missing token disables all Phase 4 routes. The API queues `opportunities.detect`; the worker loads successful historical observations and runs six deterministic detectors.
+
+- `POST /sites/:siteId/opportunity-runs`: trigger with optional historical `endDate`, partial `config`, and `idempotencyKey`
+- `GET /sites/:siteId/opportunity-runs/:id`: status, counts, coverage, attempts and safe failures
+- `GET /sites/:siteId/opportunities`: paginated filters by type/status/minScore/pageId
+- `GET /sites/:siteId/opportunities/:id`: immutable evidence/score history and lifecycle decisions
+- `PATCH /sites/:siteId/opportunities/:id/status`: acknowledge, dismiss or reopen with expected status and reason; requires an active configured `OPPORTUNITY_ACTOR_ID`
+
+Every endpoint requires `Authorization: Bearer <token>`. Defaults use 28 days, a three-day finality buffer and explicit minimum evidence. Business value remains unassigned until configured. Cannibalization, content gaps and internal-link suggestions remain candidates for review.
+
+`pnpm opportunities:validate` reads existing observations without database writes or vendor calls. Detailed output is stored privately in ignored `tmp/phase4-validation.json`. Unconfigured database access is reported explicitly rather than interpreted as zero opportunities.
+
+Rules, formulas and limits: [docs/OPPORTUNITY_ENGINE.md](docs/OPPORTUNITY_ENGINE.md). Commands/recovery: [docs/runbooks/opportunities.md](docs/runbooks/opportunities.md). Calibration and available-data status: [docs/PHASE_4_CALIBRATION.md](docs/PHASE_4_CALIBRATION.md).
+
+## Analyze opportunities with agents
+
+Phase 5 is disabled by default. Configure a separate `AGENT_API_TOKEN`, active `AGENT_ACTOR_ID`, worker-only `LLM_OPENAI_API_KEY` and a complete `LLM_POLICY_JSON` with pinned models, verified integer token prices and limits before setting `AGENTS_ENABLED=true`.
+
+- `POST /sites/:siteId/opportunities/:id/analysis`: queue a bounded Supervisor workflow
+- `GET /sites/:siteId/agent-runs/:id`: inspect sanitized evidence, versions, calls, usage, cost and validated findings
+- `GET /sites/:siteId/agent-runs/:id/draft`: retrieve only completed non-executable DRAFT output
+- `POST /sites/:siteId/agent-runs/:id/retry`: request safe resume with frozen evidence/policy and retained attempt limits
+
+Every Phase 5 route requires its own bearer credential. Specialists interpret technical, keyword, content and link evidence; the Supervisor combines validated results. All important output is schema/policy checked, observations must copy supplied facts exactly, and targets stay within supplied page identities. Agents have no tools, database access or production write capability. No autonomous schedule or full dashboard is added.
+
+Architecture/contracts: [docs/AGENT_LAYER.md](docs/AGENT_LAYER.md). Enablement/recovery/live procedure: [docs/runbooks/agents.md](docs/runbooks/agents.md). Actual evaluation status: [docs/PHASE_5_EVALUATION.md](docs/PHASE_5_EVALUATION.md).
+
+## Review, record and measure changes
+
+Phase 6 materializes one validated draft action into a concrete typed proposal with before/after values and an explicit measurement rule. Set `WORKFLOW_ACCESS_JSON` with private token/active actor/role entries. Clients cannot supply reviewer identity or privileges. HIGH/SPECIAL_APPROVAL review requires SPECIAL_APPROVER; business mutations require active humans.
+
+Under `/sites/:siteId/workflow/`:
+
+- Recommendations: create/list/detail, immutable `versions`, review `decisions`, manual `implementation`.
+- Changes: ledger detail, human `reverts`, metadata `corrections`, explicit baseline recapture and measurement history.
+- Measurements: operator-triggered mature 30/60/90 attempts; optional pg-boss hourly dispatch from durable plans.
+
+Approval never changes the website. Implementation requires exact approved values, human date/notes/reference/attestation. SANDBOX is explicit for controlled validation. Missing/thin/overlapping data produces INSUFFICIENT_DATA, and results never assert causation. Reverts are records only.
+
+`WORKFLOW_SCHEDULES_ENABLED` defaults false. Scheduled dispatch requires an active SERVICE `WORKFLOW_MEASUREMENT_ACTOR_ID`; existing plans survive restarts/disabled schedules. All analysis uses stored observations, without new vendor calls.
+
+Rules and architecture: [docs/WORKFLOW_MEASUREMENT.md](docs/WORKFLOW_MEASUREMENT.md). API/operation instructions: [docs/runbooks/workflow-measurement.md](docs/runbooks/workflow-measurement.md). Controlled evidence: [docs/PHASE_6_VALIDATION.md](docs/PHASE_6_VALIDATION.md).
+
 ## Verify the workspace
 
 ```powershell
@@ -175,8 +220,8 @@ The Nginx file under `infrastructure/nginx/` is a deployment baseline, not an au
 
 ```text
 apps/
-  api/         Fastify liveness and readiness service
-  worker/      pg-boss lifecycle and foundation health job
+  api/         Fastify health, crawl, integration, opportunity and agent commands/reads
+  worker/      pg-boss crawl, Google import, opportunity and agent jobs
   dashboard/   Minimal private control-center placeholder
 packages/
   config/      Zod-validated environment configuration
@@ -184,6 +229,10 @@ packages/
   seo-core/    URL identity, indexability, graph metrics, issue rules
   crawler/     Safe HTTP fetch, robots/sitemaps, Cheerio extraction, frontier
   integrations/ Validated Google auth, API clients, normalization, and URL mapping
+  opportunities/ Pure deterministic detection, scoring and lifecycle rules
+  llm/         Provider ports, real HTTP adapter and fixture provider
+  agents/      Evidence, role/prompt/schema contracts and bounded Supervisor
+  workflow/    Review/risk/value contracts and deterministic measurement
   shared/      Structured logging and correlation helpers
   testkit/     Shared test environment helpers
 infrastructure/
@@ -193,3 +242,21 @@ docs/runbooks/ Operational procedures
 ```
 
 See [docs/runbooks/development.md](docs/runbooks/development.md) for health checks, shutdown, and recovery guidance.
+
+## Phase 7 private SEO Control Center
+
+Phases 1–7 are approved. Phase 7 adds a compact light dashboard with overview, crawl/technical evidence, separate Google performance datasets, opportunities, agent recommendations, exact-version human review, manual implementation recording, Change Ledger, 30/60/90 measurement state and collection freshness/failures. Phase 7.5 private VPS deployment and hardening are implemented; live Google/opportunity/AI acceptance remains pending. See [production operations](docs/OPERATIONS.md) and [validation evidence](docs/PHASE_7_5_VALIDATION.md). Phase 8 has not been started.
+
+Run `pnpm dev:dashboard` alongside the API/worker. Sign in with your own API-managed `WORKFLOW_ACCESS_JSON` credential bound to an active HUMAN actor. The browser receives an HttpOnly expiring session, not a bearer token. Use one dashboard process; deploy/restart signs out users. Inject `DASHBOARD_ORIGIN`/`DASHBOARD_API_URL` when changing localhost defaults and complete TLS/access hardening before remote exposure. No production website modification occurs through this UI.
+
+Read [dashboard operations](docs/runbooks/dashboard.md) and [Phase 7 validation](docs/PHASE_7_VALIDATION.md) for setup, roles, review/implementation, metric/freshness definitions, scope limits and checks. Existing collection/detection/analysis commands remain in their runbooks. New alert engines and scheduled report distribution are explicitly deferred under the current scope.
+
+Browser checks use `TEST_DATABASE_URL=... pnpm test:dashboard` with an isolated local database ending `_test` and installed Chrome. Playwright 1.63.0 is development-only; no browser/analytics/identity runtime dependency was added. Never run destructive integration fixtures against a deployment database.
+
+### Deployed dashboard
+
+Open [SEO Control Center](https://scc.rocobroker.com/sign-in) with the existing named access credential. HTTPS renewal is automatic; the API and database remain private. No SSH tunnel is needed for dashboard access. See [operations](docs/OPERATIONS.md) for certificate/renewal checks and recovery.
+
+### Initial AI connection
+
+Only the SEO Supervisor is activated, using GPT-6.1 Sol with medium reasoning and a $20 monthly application cap. Real recommendation evaluation awaits genuine scored Google evidence. See [Supervisor connection](docs/SUPERVISOR_CONNECTION.md) for eligibility, limits and validation.

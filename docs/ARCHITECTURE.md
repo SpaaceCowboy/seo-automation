@@ -222,3 +222,49 @@ Phase 3 materializes `@roco/integrations` and retains the existing process bound
 - The pg-boss dispatcher creates deterministic daily GSC/GA4 and weekly PageSpeed commands when schedules are explicitly enabled. Re-delivery resolves the same logical sync run and metric natural keys.
 
 Crawler, GSC, GA4, and PageSpeed observations share `url-v1` normalization. A Google URL receives a `page_id` only when its normalized hash matches an existing crawler page. Valid in-scope but not-yet-crawled URLs remain stored with `page_id = null`; invalid or out-of-scope URL counts remain visible in the sync summary and are never silently merged.
+
+## 14. Phase 4 implementation
+
+`@roco/opportunities` owns pure, schema-validated six-type detection, evidence gates, scoring and lifecycle rules. It depends only on the existing Zod dependency and Node.js primitives. The API validates authenticated commands and enqueues `opportunities.detect`; workers load data, freeze a repeatable-read source snapshot and persist results atomically through `@roco/db`. No app imports another app, and no new vendor caller or dashboard surface is introduced.
+
+`scoring_configs` stores immutable resolved configurations by content hash. `opportunity_runs` stores immutable command/input provenance, status, attempts, windows, timings, safe failures and counts. `opportunities` is a mutable current projection over immutable `opportunity_scores` observations and `opportunity_events`. Human status changes append attributable `audit_events`. Per-site database transaction locks serialize current projections and operator decisions; old runs retain historical evidence without regressing newer state.
+
+The source loader keeps PAGE and PAGE_QUERY datasets independent and requires successful/final source coverage. GA4/PageSpeed provide optional context, not inferred commercial value. Insufficient imports cannot resolve opportunities. The operational validator uses the same source loader in READ ONLY transactions without creating any database records.
+
+A separate optional bearer operator credential protects every Phase 4 endpoint, and status mutations require its configured active actor. This does not authorize public exposure of earlier unauthenticated endpoints or settle the dashboard SSO/session decision. Rules/calibration/operations are documented in `OPPORTUNITY_ENGINE.md`, `PHASE_4_CALIBRATION.md` and `runbooks/opportunities.md`. Phase 5 is implemented separately below.
+
+## 15. Phase 5 implementation
+
+`@roco/llm` separates provider transport from `@roco/agents` domain logic. The installed real adapter calls OpenAI with strict structured output, no tools, bounded timeout/response size and no automatic model fallback. Model routes/prices are operator configured; live analysis is disabled by default. Tests inject providers without network/paid calls.
+
+The API authenticates a separate analysis operator credential, binds triggers/retries to a configured active actor, creates a source-score-bound run and queues `agents.analyze-opportunity`. The worker takes a per-run execution lock, freezes the selected evidence/policy, executes an allowlisted specialist sequence and then runs Supervisor synthesis. Each provider attempt is journalled/reserved before egress and settled with usage/cost/status afterward. No database transaction remains open during the provider request. Validated partial specialist findings remain historical if later stages fail; they never become an executable action.
+
+`agent_runs`, `agent_evidence`, `agent_invocations`, `agent_outputs` and a deployment-wide monthly budget projection preserve traceability. Drafts are an attachment to a validated Supervisor output, explicitly DRAFT/non-executable. Full recommendation versions, approvals, execution ledger, measurement and dashboard work remain outside Phase 5.
+
+Persistence revalidates output, protects immutable evidence/call identity/terminal results and serializes shared cost reservations. Infrastructure retry cannot erase per-agent attempts or replay non-retryable errors. Pending ambiguous calls retain conservative budget bookings; successful calls are reused. Definitions and operating details are in `AGENT_LAYER.md` and `runbooks/agents.md`.
+
+## 16. Phase 6 implementation
+
+`@roco/workflow` materializes reviewed agent actions into typed, immutable versions, enforces role/risk/lifecycle rules and classifies metric comparisons deterministically. API credentials map to active named actors/explicit roles; there is no free-form reviewer input. Human review, human implementation declaration and measurement remain independent records. No dashboard or website writer is introduced.
+
+The manual implementation transaction verifies the current approved version and exact actual-before/after values, then appends the ledger, initial baseline and all three measurement plans atomically. Revisions invalidate prior approval; metadata corrections and reverts append events. Agent/metric history is referenced rather than copied wholesale.
+
+Measurement reads successful historical imports/crawl observations through shared persistence. Frozen baseline/result snapshots preserve capture-time aggregates and provenance. Operators can explicitly recapture late baseline data as another immutable version. A pg-boss dispatcher recovers durable due plans/queued commands and delivers generic horizon jobs; data lag, missing samples and overlapping changes cannot silently become causal performance claims.
+
+Database guards reinforce current-version human approval, exact ledger values and immutable business/evidence histories. Mutable recommendation/plan/run fields are projections or operational status. See `WORKFLOW_MEASUREMENT.md`, `runbooks/workflow-measurement.md` and `PHASE_6_VALIDATION.md`. Phase 7 is implemented below.
+
+## 17. Phase 7 implementation
+
+The dashboard is a private Next.js application with one control-center navigation, bounded lists and an accessible native detail dialog. Server-only routes mediate API access; React never imports database runtime code or calculates opportunities, review transitions or measurement classifications. Browser-safe contracts are exported separately from server packages. Existing CSS conventions are extended with compact light panels, logical properties, responsive layouts and Persian number/date formatting under RTL.
+
+An opaque expiring session keeps the named API credential in bounded process memory. The BFF revalidates active identity/roles through Fastify on every request, checks exact origin/per-session CSRF on mutations and allowlists fixed private API paths. No arbitrary upstream URL, raw prompt or browser bearer storage is introduced. One Next process is required; restart revokes sessions.
+
+Fastify's control read service uses `@roco/db` projections over existing observations, exact site scoping, server pagination/filter/date bounds and five-second read statement timeouts. Current score components bind to the opportunity's projected source run. Google aggregation stays server-side and dimension specific. Missing imports remain null; issue absence is labelled NOT_OBSERVED rather than confirmed repair. Existing Phase 6 services remain authoritative for mutations; the server derives available review actions using their policy functions.
+
+Phase 1–3 domain routes now require named active human credentials/roles when the control service is enabled. Phase 4/5 retain their existing separately authenticated private operator contracts; Phase 6 retains named roles. Health/readiness are non-sensitive probes. The Nginx baseline routes browser `/api` calls to Next, and Fastify remains private. No remote rollout or new write executor is enabled.
+
+See `runbooks/dashboard.md` for operating instructions and `PHASE_7_VALIDATION.md` for browser/SQL/regression evidence and the explicit existing-alert/report boundary.
+
+## Phase 7.5 production runtime
+
+`infrastructure/compose.production.yaml` deploys PostgreSQL, a one-shot migrator, API, worker, dashboard and Nginx. The base configuration publishes a loopback Nginx port. The user-approved HTTPS overlay publishes 80/443 for `scc.rocobroker.com`; it proxies only the dashboard BFF, never direct Fastify routes. The operational wrapper selects this overlay using `config/https.enabled`. Certificate live/archive directories and an ACME webroot are mounted read-only into Nginx; host Certbot manages renewal and validates/reloads the proxy. Operations use a profile-scoped CLI with mounted credentials. File secret loading is shared in config, including migrations. The worker reconciles persisted schedules and writes a database/queue heartbeat after handler registration. PostgreSQL stores delayed work and measurement plans across process restarts. See `OPERATIONS.md` for startup order, health limitations, encrypted recovery and provider setup.

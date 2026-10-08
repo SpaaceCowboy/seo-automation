@@ -17,6 +17,9 @@
     "@roco/shared": "workspace:*",
     "fastify": "5.12.5",
     "pg-boss": "12.35.0",
-    "zod": "4.6.5"
+    "zod": "4.6.5",
+    "@roco/opportunities": "workspace:*",
+    "@roco/agents": "workspace:*",
+    "@roco/workflow": "workspace:*"
   }
 }

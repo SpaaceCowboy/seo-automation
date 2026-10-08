@@ -63,4 +63,4 @@ A foundation readiness report with commands, service health evidence, migration 
 - Infrastructure: pinned PostgreSQL 17.11 Compose service, localhost port binding, health check, and inactive Nginx baseline
 - Operations: environment example, README, development runbook, migration/integration tests
 
-The completion report is authoritative for the exact verification results. Phase 2 remains unapproved and unimplemented.
+The completion report is authoritative for the exact verification results. Phase 2 and Phase 3 are now implemented; Phase 3 has been approved. This Phase 1 exit note is historical.

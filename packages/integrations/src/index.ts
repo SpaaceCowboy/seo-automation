@@ -1,5 +1,6 @@
 import { createHash, createSign } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import type { ReadableStreamDefaultReader } from "node:stream/web";
 
 import { isInternalUrl, normalizeUrl, type SiteScope } from "@roco/seo-core";
 import { z } from "zod";
@@ -15,7 +16,9 @@ export interface AccessTokenProvider {
 const serviceAccountSchema = z.object({
   client_email: z.string().email(),
   private_key: z.string().min(1),
-  token_uri: z.string().url().default("https://oauth2.googleapis.com/token"),
+  token_uri: z
+    .literal("https://oauth2.googleapis.com/token")
+    .default("https://oauth2.googleapis.com/token"),
 });
 
 function encode(value: string): string {
@@ -52,19 +55,46 @@ export function createServiceAccountTokenProvider(input: {
       const signer = createSign("RSA-SHA256");
       signer.update(`${header}.${claims}`);
       const assertion = `${header}.${claims}.${signer.sign(credential.private_key, "base64url")}`;
-      const response = await fetcher(credential.token_uri, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-          assertion,
-        }),
-      });
-      if (!response.ok)
-        throw new GoogleApiError("AUTH_FAILED", response.status, false);
-      const body = z
-        .object({ access_token: z.string(), expires_in: z.number().positive() })
-        .parse(await response.json());
+      let body: { access_token: string; expires_in: number } | undefined;
+      for (let attempt = 0; attempt <= 2; attempt++) {
+        try {
+          const response = await fetcher(credential.token_uri, {
+            method: "POST",
+            redirect: "error",
+            signal: AbortSignal.timeout(30000),
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+              assertion,
+            }),
+          });
+          if (!response.ok)
+            throw new GoogleApiError(
+              "AUTH_FAILED",
+              response.status,
+              response.status === 429 || response.status >= 500,
+            );
+          body = z
+            .object({
+              access_token: z.string(),
+              expires_in: z.number().positive(),
+            })
+            .parse(await boundedJson(response, 65536));
+          break;
+        } catch (error) {
+          const retryable =
+            error instanceof GoogleApiError
+              ? error.retryable
+              : error instanceof TypeError ||
+                (error instanceof DOMException &&
+                  ["AbortError", "TimeoutError"].includes(error.name));
+          if (!retryable || attempt === 2) throw error;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 500 * 2 ** attempt),
+          );
+        }
+      }
+      if (!body) throw new GoogleApiError("AUTH_FAILED", 0, false);
       cached = {
         token: body.access_token,
         expiresAt: now() + body.expires_in * 1000,
@@ -91,6 +121,42 @@ export interface GoogleRequestPolicy {
   readonly requestsPerSecond: number;
 }
 
+async function boundedJson(
+  response: Response,
+  maximum = 16 * 1024 * 1024,
+): Promise<unknown> {
+  if (!response.body)
+    throw new GoogleApiError("EMPTY_RESPONSE", response.status, false);
+  const reader =
+    response.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maximum) {
+        await reader.cancel();
+        throw new GoogleApiError("RESPONSE_LIMIT", response.status, false);
+      }
+      chunks.push(value);
+    }
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+const requestStarts = new WeakMap<GoogleRequestPolicy, number>();
+async function pace(policy: GoogleRequestPolicy): Promise<void> {
+  const now = Date.now(),
+    next = Math.max(now, requestStarts.get(policy) ?? 0);
+  requestStarts.set(policy, next + 1000 / policy.requestsPerSecond);
+  if (next > now)
+    await new Promise((resolve) => setTimeout(resolve, next - now));
+}
+
 async function googleRequest<T>(input: {
   url: string;
   method?: "GET" | "POST";
@@ -106,6 +172,7 @@ async function googleRequest<T>(input: {
   if (input.apiKey !== undefined) url.searchParams.set("key", input.apiKey);
   let lastError: unknown;
   for (let attempt = 0; attempt <= input.policy.retryLimit; attempt += 1) {
+    await pace(input.policy);
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
@@ -116,6 +183,7 @@ async function googleRequest<T>(input: {
       const response = await fetcher(url, {
         method: input.method ?? "GET",
         signal: controller.signal,
+        redirect: "error",
         headers: {
           ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
           ...(input.body === undefined
@@ -134,13 +202,15 @@ async function googleRequest<T>(input: {
           retryable,
         );
       }
-      return input.schema.parse(await response.json());
+      return input.schema.parse(await boundedJson(response));
     } catch (error) {
       lastError = error;
       const retryable =
         error instanceof GoogleApiError
           ? error.retryable
-          : error instanceof DOMException && error.name === "AbortError";
+          : error instanceof TypeError ||
+            (error instanceof DOMException &&
+              ["AbortError", "TimeoutError"].includes(error.name));
       if (!retryable || attempt === input.policy.retryLimit) throw error;
       await new Promise((resolve) =>
         setTimeout(
@@ -269,11 +339,15 @@ export function createGscClient(input: {
             ? ["date", "query", "country", "device"]
             : ["date", "page", "query", "country", "device"];
       const rowLimit = Math.min(request.rowLimit ?? 25_000, 25_000);
+      if (!Number.isInteger(rowLimit) || rowLimit < 1)
+        throw new GoogleApiError("INVALID_ROW_LIMIT", 0, false);
       const rows: GscMetricRow[] = [];
       let startRow = 0;
       let requestCount = 0;
       let hasMore = true;
       while (hasMore) {
+        if (requestCount >= 100 || rows.length >= 100000)
+          throw new GoogleApiError("IMPORT_LIMIT", 0, false);
         const response = await googleRequest({
           url: `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(request.property)}/searchAnalytics/query`,
           method: "POST",
@@ -292,6 +366,8 @@ export function createGscClient(input: {
           schema: gscResponseSchema,
         });
         requestCount += 1;
+        if (rows.length + response.rows.length > 100000)
+          throw new GoogleApiError("IMPORT_LIMIT", 0, false);
         for (const row of response.rows) {
           const values = Object.fromEntries(
             dimensions.map((name, index) => [name, row.keys[index] ?? ""]),
@@ -357,11 +433,15 @@ export function createGa4Client(input: {
       pageSize?: number;
     }): Promise<{ rows: Ga4MetricRow[]; requestCount: number }> {
       const limit = Math.min(request.pageSize ?? 100_000, 100_000);
+      if (!Number.isInteger(limit) || limit < 1)
+        throw new GoogleApiError("INVALID_ROW_LIMIT", 0, false);
       const rows: Ga4MetricRow[] = [];
       let offset = 0;
       let requestCount = 0;
       let hasMore = true;
       while (hasMore) {
+        if (requestCount >= 100 || rows.length >= 100000)
+          throw new GoogleApiError("IMPORT_LIMIT", 0, false);
         const response = await googleRequest({
           url: `https://analyticsdata.googleapis.com/v1beta/properties/${encodeURIComponent(request.propertyId)}:runReport`,
           method: "POST",
@@ -400,6 +480,8 @@ export function createGa4Client(input: {
           schema: ga4ResponseSchema,
         });
         requestCount += 1;
+        if (rows.length + response.rows.length > 100000)
+          throw new GoogleApiError("IMPORT_LIMIT", 0, false);
         for (const row of response.rows) {
           const metric = (index: number) =>
             Number(row.metricValues[index]?.value ?? 0);

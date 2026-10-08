@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 import {
@@ -233,11 +233,12 @@ export function createCrawlRepository(
           updatedAt: new Date(),
           errorCode: null,
           errorMessage: null,
+          finishedAt: null,
         })
         .where(
           and(
             eq(schema.crawlRuns.id, runId),
-            eq(schema.crawlRuns.status, "QUEUED"),
+            inArray(schema.crawlRuns.status, ["QUEUED", "FAILED"]),
           ),
         )
         .returning({ id: schema.crawlRuns.id });
@@ -247,9 +248,7 @@ export function createCrawlRepository(
         .from(schema.crawlRuns)
         .where(eq(schema.crawlRuns.id, runId))
         .limit(1);
-      return (
-        current[0]?.status === "RUNNING" || current[0]?.status === "FAILED"
-      );
+      return current[0]?.status === "RUNNING";
     },
     async cancel(runId) {
       const rows = await db
@@ -297,7 +296,12 @@ export function createCrawlRepository(
           finishedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(schema.crawlRuns.id, runId));
+        .where(
+          and(
+            eq(schema.crawlRuns.id, runId),
+            inArray(schema.crawlRuns.status, ["QUEUED", "RUNNING", "FAILED"]),
+          ),
+        );
     },
     async persistResult(runId, siteId, output) {
       await db.transaction(async (transaction) => {

@@ -55,6 +55,11 @@ interface CommonDependencies {
   readonly repository: IntegrationRepository;
 }
 
+function safeSyncQueueFailure(code: string): Error {
+  // Do not persist provider bodies or original database errors in pg-boss output.
+  return new Error(code, { cause: new Error(code) });
+}
+
 function safeFailure(error: unknown): { code: string; message: string } {
   if (error instanceof z.ZodError)
     return {
@@ -63,7 +68,11 @@ function safeFailure(error: unknown): { code: string; message: string } {
         "Google returned a response that did not match the expected contract.",
     };
   if (error instanceof Error && error.name === "GoogleApiError")
-    return { code: "GOOGLE_API_ERROR", message: error.message };
+    return {
+      code: "GOOGLE_API_ERROR",
+      message:
+        "Google rejected the request; verify property access, quota and correlated status.",
+    };
   return {
     code: "SYNC_FAILED",
     message:
@@ -82,7 +91,13 @@ export function createGscSyncHandler(
       const data = gscSchema.parse(job.data);
       const run = await dependencies.repository.getSyncRun(data.syncRunId);
       if (run === null || run.status === "SUCCEEDED") continue;
-      await dependencies.repository.markRunning(run.id);
+      if (
+        run.siteId !== data.siteId ||
+        run.provider !== "GSC" ||
+        run.dimensionSet !== data.dimensionSet
+      )
+        throw new Error("INVALID_SYNC_CONTEXT");
+      if (!(await dependencies.repository.markRunning(run.id))) continue;
       try {
         const scope = await dependencies.repository.getSiteScope(data.siteId);
         if (scope === null) throw new Error("Site scope is unavailable.");
@@ -150,7 +165,7 @@ export function createGscSyncHandler(
           { err: error, syncRunId: run.id, siteId: data.siteId },
           "GSC sync failed",
         );
-        throw error;
+        throw safeSyncQueueFailure(failure.code);
       }
     }
   };
@@ -167,7 +182,9 @@ export function createGa4SyncHandler(
       const data = baseSchema.parse(job.data);
       const run = await dependencies.repository.getSyncRun(data.syncRunId);
       if (run === null || run.status === "SUCCEEDED") continue;
-      await dependencies.repository.markRunning(run.id);
+      if (run.siteId !== data.siteId || run.provider !== "GA4")
+        throw new Error("INVALID_SYNC_CONTEXT");
+      if (!(await dependencies.repository.markRunning(run.id))) continue;
       try {
         const scope = await dependencies.repository.getSiteScope(data.siteId);
         if (scope === null) throw new Error("Site scope is unavailable.");
@@ -225,7 +242,7 @@ export function createGa4SyncHandler(
           { err: error, syncRunId: run.id, siteId: data.siteId },
           "GA4 sync failed",
         );
-        throw error;
+        throw safeSyncQueueFailure(failure.code);
       }
     }
   };
@@ -242,7 +259,9 @@ export function createPageSpeedSyncHandler(
       const data = pagespeedJobSchema.parse(job.data);
       const run = await dependencies.repository.getSyncRun(data.syncRunId);
       if (run === null || run.status === "SUCCEEDED") continue;
-      await dependencies.repository.markRunning(run.id);
+      if (run.siteId !== data.siteId || run.provider !== "PAGESPEED")
+        throw new Error("INVALID_SYNC_CONTEXT");
+      if (!(await dependencies.repository.markRunning(run.id))) continue;
       try {
         const scope = await dependencies.repository.getSiteScope(data.siteId);
         if (scope === null) throw new Error("Site scope is unavailable.");
@@ -311,7 +330,7 @@ export function createPageSpeedSyncHandler(
           { err: error, syncRunId: run.id, siteId: data.siteId },
           "PageSpeed sync failed",
         );
-        throw error;
+        throw safeSyncQueueFailure(failure.code);
       }
     }
   };

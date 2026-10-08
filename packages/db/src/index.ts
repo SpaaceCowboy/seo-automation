@@ -37,6 +37,7 @@ export function createDatabase(
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
+    statement_timeout: 30_000,
     ...overrides,
   });
   const db = drizzle(pool, { schema });
@@ -158,3 +159,9 @@ export function createFoundationJobRepository(
 export * from "./schema.js";
 export * from "./crawl-repository.js";
 export * from "./integration-repository.js";
+export * from "./opportunity-repository.js";
+export * from "./agent-repository.js";
+export * from "./workflow-repository.js";
+export * from "./measurement-repository.js";
+
+export * from "./control-repository.js";

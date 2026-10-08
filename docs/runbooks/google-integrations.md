@@ -45,7 +45,7 @@ $run = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:4000/sites/$siteId/
 
 Use `mode='backfill'` plus explicit `startDate`/`endDate`, or omit dates to use `GOOGLE_BACKFILL_DAYS`. Requests are limited to 480 days. GSC pagination uses at most 25,000 rows/request and GA4 at most 100,000 rows/request.
 
-After controlled validation succeeds, set `GOOGLE_SCHEDULES_ENABLED=true`. The worker dispatches yesterday's GSC and GA4 data daily and the canonical origin to PageSpeed weekly. Cron expressions and request/retry controls are configurable in `.env.example`.
+After controlled validation succeeds, set `GOOGLE_SCHEDULES_ENABLED=true`. The worker dispatches GSC and GA4 data for UTC today minus `GOOGLE_FINALITY_DAYS` (default 3) daily and the canonical origin to PageSpeed weekly. Cron expressions and request/retry controls are configurable in `.env.example`.
 
 ## Freshness and recovery
 
@@ -56,3 +56,7 @@ Invoke-RestMethod "http://127.0.0.1:4000/sites/$siteId/integrations/freshness"
 Freshness returns the last successful window, latest state, and most recent safe failure for each provider. Quota/5xx/timeouts are retried with exponential backoff. Repeating the same logical window is safe: sync-run and metric natural keys prevent duplicates. Permission failures require fixing property access; malformed-response failures require reviewing the provider contract before retrying.
 
 An in-scope URL not present in `pages` is stored with `page_id = null`. Out-of-scope or invalid URLs are not persisted as metrics and increment `unmatchedUrlCount` in the run summary.
+
+## Linux production deployment
+
+Use `../OPERATIONS.md` for private authenticated production commands, mounted credentials, Google administrator setup and bounded import limits. The older PowerShell examples above describe request shapes; production commands must use named credentials.

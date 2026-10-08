@@ -9,8 +9,9 @@
     "pnpm": ">=10.0.0"
   },
   "scripts": {
-    "build": "pnpm build:packages && pnpm --filter @roco/api --filter @roco/worker --filter @roco/dashboard build",
-    "build:packages": "pnpm --filter @roco/config build && pnpm --filter @roco/shared build && pnpm --filter @roco/seo-core build && pnpm --filter @roco/crawler build && pnpm --filter @roco/integrations build && pnpm --filter @roco/db build && pnpm --filter @roco/testkit build",
+    "build": "pnpm build:packages && pnpm build:operations && pnpm --filter @roco/api --filter @roco/worker --filter @roco/dashboard build",
+    "build:operations": "tsc -p scripts/tsconfig.build.json",
+    "build:packages": "pnpm --filter @roco/config build && pnpm --filter @roco/shared build && pnpm --filter @roco/seo-core build && pnpm --filter @roco/crawler build && pnpm --filter @roco/integrations build && pnpm --filter @roco/opportunities build && pnpm --filter @roco/llm build && pnpm --filter @roco/agents build && pnpm --filter @roco/workflow build && pnpm --filter @roco/db build && pnpm --filter @roco/testkit build",
     "dev": "pnpm --parallel --filter @roco/api --filter @roco/worker --filter @roco/dashboard dev",
     "dev:api": "pnpm --filter @roco/api dev",
     "dev:worker": "pnpm --filter @roco/worker dev",
@@ -22,12 +23,17 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "test": "pnpm build:packages && vitest run --exclude '**/*.integration.test.ts'",
-    "test:integration": "pnpm build:packages && vitest run packages/db/test/migrations.integration.test.ts",
+    "test:integration": "pnpm build:packages && vitest run packages/db/test/migrations.integration.test.ts && vitest run tests/integration/opportunities.integration.test.ts && vitest run tests/integration/agents.integration.test.ts && vitest run tests/integration/workflow.integration.test.ts && vitest run tests/integration/control.integration.test.ts && vitest run tests/integration/reliability.integration.test.ts",
     "test:all": "pnpm test && pnpm test:integration",
-    "typecheck": "pnpm build:packages && pnpm --recursive --if-present typecheck"
+    "typecheck": "pnpm build:packages && pnpm --recursive --if-present typecheck && pnpm exec tsc -p scripts/tsconfig.json --noEmit && pnpm exec tsc -p tests/tsconfig.json --noEmit",
+    "opportunities:validate": "pnpm build:packages && pnpm --filter @roco/db exec tsx ../../scripts/operations/validate-opportunities.ts",
+    "test:dashboard": "pnpm build && playwright test --config tests/e2e/playwright.config.ts"
   },
   "devDependencies": {
+    "@roco/config": "workspace:*",
+    "@roco/db": "workspace:*",
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
     "@types/node": "24.19.0",
     "@vitest/coverage-v8": "5.0.2",
     "eslint": "10.11.0",

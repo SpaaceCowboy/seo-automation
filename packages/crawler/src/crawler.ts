@@ -174,7 +174,7 @@ async function fetchSitemaps(
       } else {
         for (const entry of entries) pageUrls.add(entry.url);
       }
-    } catch (error) {
+    } catch {
       observations.push({
         url: normalized,
         parentUrl: parentByUrl.get(candidate) ?? null,
@@ -183,10 +183,7 @@ async function fetchSitemaps(
         documentType: "INVALID",
         entries: [],
         errorCode: "SITEMAP_PARSE_ERROR",
-        errorMessage:
-          error instanceof Error
-            ? error.message
-            : "Sitemap could not be parsed",
+        errorMessage: "Sitemap could not be parsed",
       });
     }
   }

@@ -57,4 +57,4 @@ A controlled baseline crawl report, rule coverage matrix, load/safety evidence, 
 - Raw HTML is not retained. Browser fallback is disabled because no allowlist was approved.
 - Rule catalog: `docs/TECHNICAL_SEO_RULES.md`; operations: `docs/runbooks/crawling.md`.
 
-Production/staging crawl cadence, larger URL budgets, crawl windows, query-parameter exclusions, and any Playwright allowlist remain human-controlled follow-up decisions. Phase 3 remains unapproved and unimplemented.
+Production/staging crawl cadence, larger URL budgets, crawl windows, query-parameter exclusions, and any Playwright allowlist remain human-controlled follow-up decisions. Phase 3 has since been implemented and approved. Phase 4 implementation is pending review.

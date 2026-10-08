@@ -12,3 +12,5 @@ tmp/
 .DS_Store
 Thumbs.db
 packages/db/drizzle/
+playwright-report/
+test-results/

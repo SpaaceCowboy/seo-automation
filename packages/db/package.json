@@ -23,11 +23,16 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@roco/config": "workspace:*",
     "@roco/integrations": "workspace:*",
     "@roco/seo-core": "workspace:*",
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.3",
-    "pg": "8.23.0"
+    "pg": "8.23.0",
+    "@roco/opportunities": "workspace:*",
+    "@roco/agents": "workspace:*",
+    "@roco/workflow": "workspace:*",
+    "@roco/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",

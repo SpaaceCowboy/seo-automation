@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import pino, { type Logger, type LoggerOptions } from "pino";
 import { z } from "zod";
 
+export const CHANGE_MEASUREMENT_QUEUE = "workflow.measure-change";
+export const MEASUREMENT_DISPATCH_QUEUE = "workflow.measure.dispatch";
+export const AGENT_ANALYSIS_QUEUE = "agents.analyze-opportunity";
+export const OPPORTUNITY_DETECTION_QUEUE = "opportunities.detect";
 export const CRAWL_SITE_QUEUE = "crawl.site";
 export const GSC_SYNC_QUEUE = "google.gsc.sync";
 export const GSC_BACKFILL_QUEUE = "google.gsc.backfill";
@@ -24,6 +28,12 @@ const redactionPaths = [
   "accessToken",
   "private_key",
   "PAGESPEED_API_KEY",
+  "OPPORTUNITY_API_TOKEN",
+  "AGENT_API_TOKEN",
+  "WORKFLOW_ACCESS_JSON",
+  "LLM_OPENAI_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENAIKEY",
 ];
 
 export interface LoggerConfiguration {
@@ -40,12 +50,42 @@ export function createLogger(configuration: LoggerConfiguration): Logger {
       service: configuration.service,
       environment: configuration.environment,
     },
+    serializers: { err: safeErrorMetadata, error: safeErrorMetadata },
     redact: {
       paths: redactionPaths,
       censor: "[REDACTED]",
     },
     timestamp: pino.stdTimeFunctions.isoTime,
   });
+}
+
+export function safeErrorMetadata(error: unknown): {
+  code: string;
+  httpStatus?: number;
+  retryable?: boolean;
+} {
+  const code =
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+      ? error.code
+      : "UNCLASSIFIED_ERROR";
+  const metadata: ReturnType<typeof safeErrorMetadata> = {
+    code: /^[A-Z0-9_]{1,64}$/.test(code) ? code : "UNCLASSIFIED_ERROR",
+  };
+  if (typeof error === "object" && error !== null) {
+    if (
+      "status" in error &&
+      typeof error.status === "number" &&
+      Number.isInteger(error.status) &&
+      (error.status === 0 || (error.status >= 100 && error.status <= 599))
+    )
+      metadata.httpStatus = error.status;
+    if ("retryable" in error && typeof error.retryable === "boolean")
+      metadata.retryable = error.retryable;
+  }
+  return metadata;
 }
 
 export function resolveCorrelationId(value: unknown): string {

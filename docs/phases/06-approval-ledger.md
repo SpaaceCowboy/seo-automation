@@ -1,5 +1,7 @@
 # Phase 6 - Recommendations, Approval, Change Ledger, and Measurement
 
+Status: Implemented, pending review. Controlled validation uses SANDBOX records and virtual time; production remains human-controlled.
+
 ## Objective
 
 Complete the human-controlled decision loop from evidenced recommendation through approval, manual execution recording, and 30/60/90-day measurement.
@@ -41,3 +43,19 @@ Complete the human-controlled decision loop from evidenced recommendation throug
 ## Exit artifact
 
 An end-to-end audited example from recommendation to a simulated 30/60/90 result, plus an explicit stop before Phase 7.
+
+## Implementation evidence and remaining review
+
+- Immutable concrete recommendation versions, review decisions and lifecycle events.
+- Active named human/role authorization, special review gates and stale-version/state rejection.
+- Manual exact-value implementation ledger, metadata corrections and revert records; no website adapter.
+- Atomic baseline and durable plans; numbered explicit baseline recapture for late data.
+- Data-only pg-boss dispatcher/horizon jobs, status/retry/idempotency and immutable measurement results.
+- Versioned configurable primary metrics/thresholds, partial/thin/uneven coverage handling and no causation claims.
+- Deterministic and PostgreSQL sandbox tests cover approval invalidation, values, roles, all horizons, history/replay, missing baselines, reverts and queue delivery.
+
+Rules: `docs/WORKFLOW_MEASUREMENT.md`; operations: `docs/runbooks/workflow-measurement.md`; actual validation: `docs/PHASE_6_VALIDATION.md`.
+
+Deployment actors/roles, metric calibration, external notification channels, production manual evidence policy and private-access rollout remain human inputs. Existing real recommendations are unavailable in this checkout without project database configuration; controlled fixtures explicitly avoid falsely recording production changes.
+
+Phase 7 is not approved or started. Stop for Phase 6 review.

@@ -1,0 +1,9 @@
+[Unit]
+Description=Encrypted Roco SEO database backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/roco-seo/app/scripts/operations/backup.sh
+UMask=0077

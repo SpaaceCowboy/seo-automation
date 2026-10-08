@@ -1,0 +1,11 @@
+# Enable after the certificate has been issued; base application services stay private.
+services:
+  proxy:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/roco-seo-https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${ROCO_TLS_DIR:-/etc/letsencrypt}/live/scc.rocobroker.com:/etc/letsencrypt/live/scc.rocobroker.com:ro
+      - ${ROCO_TLS_DIR:-/etc/letsencrypt}/archive/scc.rocobroker.com:/etc/letsencrypt/archive/scc.rocobroker.com:ro
+      - ${ROCO_ACME_DIR:-/var/lib/roco-acme}:/var/www/acme:ro

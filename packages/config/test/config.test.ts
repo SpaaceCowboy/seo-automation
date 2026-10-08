@@ -51,4 +51,26 @@ describe("configuration", () => {
   it("rejects a missing database URL", () => {
     expect(() => parseWorkerConfig({})).toThrow("DATABASE_URL is required");
   });
+  it("requires private access in production and complete schedule configuration", () => {
+    expect(() =>
+      parseApiConfig({
+        DATABASE_URL: validDatabaseUrl,
+        NODE_ENV: "production",
+      }),
+    ).toThrow("named access is required");
+    expect(() =>
+      parseWorkerConfig({
+        DATABASE_URL: validDatabaseUrl,
+        GOOGLE_SCHEDULES_ENABLED: "true",
+      }),
+    ).toThrow("GOOGLE_SITE_ID");
+    expect(() =>
+      parseWorkerConfig({
+        DATABASE_URL: validDatabaseUrl,
+        GOOGLE_SITE_ID: "11111111-1111-4111-8111-111111111111",
+        GOOGLE_SCHEDULES_ENABLED: "true",
+        GSC_PROPERTY: "sc-domain:example.com",
+      }),
+    ).toThrow("GOOGLE_CREDENTIALS_FILE");
+  });
 });

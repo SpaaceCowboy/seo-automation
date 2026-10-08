@@ -1,0 +1,191 @@
+name: roco-seo
+
+x-app: &app
+  image: ${ROCO_APP_IMAGE:-roco-seo:local}
+  build:
+    context: ..
+    dockerfile: infrastructure/docker/Dockerfile
+    args:
+      NODE_IMAGE: ${NODE_IMAGE:-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20}
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 45s
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+  networks: [backend]
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17.11-alpine3.24@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: roco_seo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, database_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init-production.sh:/docker-entrypoint-initdb.d/20-app.sh:ro
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d roco_seo"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    mem_limit: 1g
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: [node, packages/db/dist/migrate.js]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets: [database_url]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    <<: *app
+    command: [node, apps/api/dist/server.js]
+    env_file: ${ROCO_ENV_FILE:-/opt/roco-seo/config/production.env}
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      DATABASE_URL_FILE: /run/secrets/database_url
+      WORKFLOW_ACCESS_JSON_FILE: /run/secrets/workflow_access
+      OPPORTUNITY_API_TOKEN_FILE: /run/secrets/opportunity_token
+      AGENT_API_TOKEN_FILE: /run/secrets/agent_token
+    secrets: [database_url, workflow_access, opportunity_token, agent_token]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: [CMD, node, scripts/dist/healthcheck.js, api]
+      interval: 15s
+      timeout: 7s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+
+  worker:
+    <<: *app
+    command: [node, apps/worker/dist/worker.js]
+    env_file: ${ROCO_ENV_FILE:-/opt/roco-seo/config/production.env}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+      LLM_OPENAI_API_KEY_FILE: /run/secrets/llm_openai_key
+      PAGESPEED_API_KEY_FILE: /run/secrets/pagespeed_key
+    secrets: [database_url, llm_openai_key, pagespeed_key]
+    volumes:
+      - ${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/google:/run/google:ro
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: [CMD, node, scripts/dist/healthcheck.js, worker]
+      interval: 15s
+      timeout: 7s
+      retries: 3
+      start_period: 45s
+    mem_limit: 1g
+
+  dashboard:
+    <<: *app
+    command:
+      [
+        node,
+        apps/dashboard/node_modules/next/dist/bin/next,
+        start,
+        apps/dashboard,
+        --hostname,
+        0.0.0.0,
+        --port,
+        "3000",
+      ]
+    environment:
+      NODE_ENV: production
+      DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN:?Set exact dashboard browser origin}
+      DASHBOARD_API_URL: http://api:4000
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+      - /app/apps/dashboard/.next/cache:rw,noexec,nosuid,size=64m,uid=1000,gid=1000
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, node, scripts/dist/healthcheck.js, dashboard]
+      interval: 15s
+      timeout: 7s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+
+  proxy:
+    image: ${NGINX_IMAGE:-nginx:stable-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94}
+    restart: unless-stopped
+    ports: ["127.0.0.1:${ROCO_PROXY_PORT:-8087}:8080"]
+    volumes:
+      - ./nginx/roco-seo.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      dashboard: { condition: service_healthy }
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://127.0.0.1:8080/sign-in"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  operations:
+    <<: *app
+    profiles: [operations]
+    restart: "no"
+    command: [node, scripts/dist/inspect.js]
+    env_file: ${ROCO_ENV_FILE:-/opt/roco-seo/config/production.env}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+      WORKFLOW_ACCESS_JSON_FILE: /run/secrets/workflow_access
+      OPPORTUNITY_API_TOKEN_FILE: /run/secrets/opportunity_token
+      AGENT_API_TOKEN_FILE: /run/secrets/agent_token
+      ROCO_API_URL: http://api:4000
+    secrets: [database_url, workflow_access, opportunity_token, agent_token]
+    volumes:
+      - ${ROCO_OPERATIONS_DIR:-/opt/roco-seo/operations}:/operations
+
+secrets:
+  postgres_password:
+    { file: "${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/postgres_password" }
+  database_password:
+    { file: "${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/database_password" }
+  database_url:
+    { file: "${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/database_url" }
+  workflow_access:
+    { file: "${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/workflow_access" }
+  opportunity_token:
+    { file: "${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/opportunity_token" }
+  agent_token:
+    { file: "${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/agent_token" }
+  llm_openai_key:
+    { file: "${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/llm_openai_key" }
+  pagespeed_key:
+    { file: "${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/pagespeed_key" }
+
+networks:
+  backend:
+volumes:
+  postgres-data:

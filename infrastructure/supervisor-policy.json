@@ -1,0 +1,22 @@
+{
+  "executionMode": "SUPERVISOR_ONLY",
+  "routes": {
+    "SUPERVISOR": {
+      "provider": "openai",
+      "model": "gpt-6.1-sol",
+      "inputNanousdPerToken": 2500,
+      "outputNanousdPerToken": 10000,
+      "reasoningEffort": "medium"
+    }
+  },
+  "maxInputBytes": 12000,
+  "maxOutputTokens": 2048,
+  "maxSpecialists": 0,
+  "maxInvocations": 1,
+  "retryLimit": 0,
+  "timeoutMs": 60000,
+  "requestsPerSecond": 0.5,
+  "runBudgetNanousd": 100000000,
+  "monthlyBudgetNanousd": 20000000000,
+  "minOpportunityScore": 75
+}

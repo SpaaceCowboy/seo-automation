@@ -1,11 +1,7 @@
 import { createDatabase, migrateDatabase } from "./index.js";
-import { config as loadDotenv } from "dotenv";
-import { fileURLToPath } from "node:url";
+import { loadEnvironment } from "@roco/config";
 
-loadDotenv({
-  path: fileURLToPath(new URL("../../../.env", import.meta.url)),
-  quiet: true,
-});
+loadEnvironment();
 
 const databaseUrl = process.env.DATABASE_URL;
 

@@ -6,3 +6,6 @@ coverage
 pnpm-lock.yaml
 docs/reference
 packages/db/migrations
+tmp
+playwright-report
+test-results

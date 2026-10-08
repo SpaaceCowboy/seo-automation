@@ -1,5 +1,7 @@
 # Phase 4 - Opportunity Engine
 
+Status: Completed and approved by the user on 2026-10-06. Production calibration remains an operational follow-up where data is accessible.
+
 ## Objective
 
 Convert historical crawl and Google observations into reproducible, explainable, prioritized SEO opportunities without using LLMs for deterministic detection.
@@ -40,3 +42,18 @@ Convert historical crawl and Google observations into reproducible, explainable,
 ## Exit artifact
 
 An opportunity calibration report with sample ranked results, false-positive review, chosen scoring version, and an explicit stop before Phase 5.
+
+## Implementation evidence and acceptance mapping
+
+- Algorithms/configuration/limitations: `docs/OPPORTUNITY_ENGINE.md`; all six required types are deterministic and versioned.
+- Reproducibility and provenance: immutable content-hashed configs, frozen source inputs, source row/run IDs, component scores, exact thresholds and analysis windows.
+- Lifecycle/deduplication: site/fingerprint uniqueness, same-run idempotency, append-only scored observations/events, acknowledgement/dismissal suppression, conditional resolution, expiry and reopen.
+- Safety: schema validation, final/successful source gates, matched comparison dates, incomplete-data counters, excluded paths, indexable graph targets and bounded computation.
+- Calibration: three-page scored sample plus 100-page historical/weight-sensitivity fixtures; see `docs/PHASE_4_CALIBRATION.md`.
+- Operations: authenticated trigger/list/detail/run/status APIs and actual pg-boss worker integration; no new schedule, dashboard, recommendation or production write capability.
+- Tests: detector/scoring/exclusion/evidence fixtures, API/worker tests, PostgreSQL history/retry/concurrency/audit tests and durable queue redelivery test. Existing Phase 1–3 suites remain passing.
+- Existing-data validation: read-only command supplied. No project database is configured in this checkout, so production counts/rankings/false-positive review are unavailable rather than reported as zero.
+
+Default weights/thresholds are provisional and configurable. Business value is explicitly unassigned unless path rules are provided. Operational/business calibration remains a review input; this implementation does not claim production recommendation precision.
+
+Phase 5 has since been approved for implementation and is documented in `05-agents.md`.

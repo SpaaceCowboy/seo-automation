@@ -26,6 +26,11 @@ const configurationSchema = z.object({
   ignoredQueryParameters: z.array(z.string()),
 });
 
+function safeCrawlQueueFailure(): Error {
+  // The original exception can include page content or database query text.
+  return new Error("CRAWL_FAILED", { cause: new Error("CRAWL_FAILED") });
+}
+
 export function createCrawlSiteHandler(dependencies: {
   readonly logger: Logger;
   readonly repository: CrawlRepository;
@@ -36,6 +41,8 @@ export function createCrawlSiteHandler(dependencies: {
       const data = crawlJobSchema.parse(job.data);
       const run = await dependencies.repository.getRun(data.crawlRunId);
       if (run === null) throw new Error("Crawl run was not found");
+      if (run.siteId !== data.siteId)
+        throw new Error("Crawl job does not match its persisted site.");
       if (run.status === "SUCCEEDED" || run.status === "CANCELLED") {
         dependencies.logger.info(
           { jobId: job.id, runId: run.id, status: run.status },
@@ -53,7 +60,7 @@ export function createCrawlSiteHandler(dependencies: {
         throw new Error("Active site scope is required");
       }
       const configuration = configurationSchema.parse(run.configSnapshot);
-      await dependencies.repository.markRunning(run.id);
+      if (!(await dependencies.repository.markRunning(run.id))) continue;
       const policy: CrawlPolicy = {
         ...configuration,
         scope: siteScope,
@@ -96,7 +103,7 @@ export function createCrawlSiteHandler(dependencies: {
           { err: error, jobId: job.id, runId: run.id, siteId: data.siteId },
           "crawl failed",
         );
-        throw error;
+        throw safeCrawlQueueFailure();
       }
     }
   };

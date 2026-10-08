@@ -25,13 +25,15 @@ export function createGoogleDispatchHandler(dependencies: {
   repository: IntegrationRepository;
   boss: PgBoss;
   properties: { gsc?: string | undefined; ga4?: string | undefined };
+  finalityDays?: number;
+  clock?: () => Date;
 }) {
   return async (jobs: Job<unknown>[]): Promise<void> => {
     for (const job of jobs) {
       const data = dispatchSchema.parse(job.data);
-      const yesterday = new Date();
-      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-      const date = isoDate(yesterday);
+      const day = dependencies.clock?.() ?? new Date();
+      day.setUTCDate(day.getUTCDate() - (dependencies.finalityDays ?? 3));
+      const date = isoDate(day);
       const scope = await dependencies.repository.getSiteScope(data.siteId);
       if (scope === null)
         throw new Error("Scheduled Google sync site does not exist.");
@@ -97,7 +99,9 @@ export function createGoogleDispatchHandler(dependencies: {
           provider: "PAGESPEED",
           propertyIdentifier: scope.canonicalOrigin,
         });
-        const week = date.slice(0, 8);
+        const monday = dependencies.clock?.() ?? new Date();
+        monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+        const week = isoDate(monday);
         const key = createHash("sha256")
           .update(`${scope.canonicalOrigin}:${week}`)
           .digest("hex");

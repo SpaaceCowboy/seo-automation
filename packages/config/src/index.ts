@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { readFileSync, statSync } from "node:fs";
 
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
@@ -77,10 +78,21 @@ const googleConfigShape = {
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
+  GOOGLE_FINALITY_DAYS: z.coerce.number().int().min(2).max(14).default(3),
   PAGESPEED_REFRESH_HOURS: z.coerce.number().int().min(1).max(720).default(168),
 };
 
+const agentEnabledSchema = z
+  .enum(["true", "false"])
+  .default("false")
+  .transform((value) => value === "true");
 const apiConfigSchema = baseConfigSchema.extend({
+  WORKFLOW_ACCESS_JSON: z.string().max(30000).optional(),
+  AGENTS_ENABLED: agentEnabledSchema,
+  AGENT_API_TOKEN: z.string().min(32).max(256).optional(),
+  AGENT_ACTOR_ID: z.string().uuid().optional(),
+  OPPORTUNITY_ACTOR_ID: z.string().uuid().optional(),
+  OPPORTUNITY_API_TOKEN: z.string().min(32).max(256).optional(),
   API_HOST: z.string().min(1).default("127.0.0.1"),
   API_PORT: z.coerce.number().int().min(1).max(65_535).default(4000),
   ...crawlerConfigShape,
@@ -88,6 +100,13 @@ const apiConfigSchema = baseConfigSchema.extend({
 });
 
 const workerConfigSchema = baseConfigSchema.extend({
+  WORKER_HEALTH_FILE: z.string().min(1).default("/tmp/roco-worker-health.json"),
+  WORKFLOW_SCHEDULES_ENABLED: agentEnabledSchema,
+  WORKFLOW_MEASUREMENT_ACTOR_ID: z.string().uuid().optional(),
+  WORKFLOW_MEASUREMENT_SCHEDULE: z.string().min(1).default("15 * * * *"),
+  AGENTS_ENABLED: agentEnabledSchema,
+  LLM_OPENAI_API_KEY: z.string().min(1).optional(),
+  LLM_POLICY_JSON: z.string().max(20000).optional(),
   WORKER_HEALTH_JOB_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -133,6 +152,36 @@ function parseConfig<T>(
   return result.data;
 }
 
+// File mounts keep secrets out of Compose interpolation and image layers.
+export function loadSecretFiles(
+  environment: NodeJS.ProcessEnv = process.env,
+): void {
+  for (const name of [
+    "DATABASE_URL",
+    "WORKFLOW_ACCESS_JSON",
+    "OPPORTUNITY_API_TOKEN",
+    "AGENT_API_TOKEN",
+    "LLM_OPENAI_API_KEY",
+    "PAGESPEED_API_KEY",
+  ]) {
+    const path = environment[`${name}_FILE`];
+    if (!path) continue;
+    if (environment[name])
+      throw new ConfigurationError([
+        `${name}: configure a value or a file, not both`,
+      ]);
+    try {
+      if (statSync(path).size > 30000) throw new Error("SECRET_TOO_LARGE");
+      const value = readFileSync(path, "utf8").trim();
+      if (value) environment[name] = value;
+    } catch {
+      throw new ConfigurationError([
+        `${name}_FILE: secret file is unavailable or too large`,
+      ]);
+    }
+  }
+}
+
 export function loadEnvironment(path?: string): void {
   const resolvedPath =
     path ?? fileURLToPath(new URL("../../../.env", import.meta.url));
@@ -144,6 +193,7 @@ export function loadEnvironment(path?: string): void {
   ) {
     throw result.error;
   }
+  loadSecretFiles();
 }
 
 export function parseBaseConfig(
@@ -155,11 +205,29 @@ export function parseBaseConfig(
 export function parseApiConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): ApiConfig {
-  return parseConfig(apiConfigSchema, environment);
+  const config = parseConfig(apiConfigSchema, environment);
+  if (config.NODE_ENV === "production" && !config.WORKFLOW_ACCESS_JSON)
+    throw new ConfigurationError([
+      "WORKFLOW_ACCESS_JSON: named access is required in production",
+    ]);
+  return config;
 }
 
 export function parseWorkerConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): WorkerConfig {
-  return parseConfig(workerConfigSchema, environment);
+  const config = parseConfig(workerConfigSchema, environment);
+  if (config.GOOGLE_SCHEDULES_ENABLED && !config.GOOGLE_SITE_ID)
+    throw new ConfigurationError([
+      "GOOGLE_SITE_ID: required for enabled Google schedules",
+    ]);
+  if (
+    config.GOOGLE_SCHEDULES_ENABLED &&
+    (config.GSC_PROPERTY || config.GA4_PROPERTY_ID) &&
+    !config.GOOGLE_CREDENTIALS_FILE
+  )
+    throw new ConfigurationError([
+      "GOOGLE_CREDENTIALS_FILE: required for configured Google property schedules",
+    ]);
+  return config;
 }

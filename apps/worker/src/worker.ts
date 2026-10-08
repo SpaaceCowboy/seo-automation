@@ -30,7 +30,12 @@ async function start(): Promise<void> {
   process.once("SIGINT", () => void shutdown("SIGINT"));
   process.once("SIGTERM", () => void shutdown("SIGTERM"));
 
-  await runtime.start();
+  try {
+    await runtime.start();
+  } catch (error) {
+    await runtime.stop();
+    throw error;
+  }
 }
 
 try {

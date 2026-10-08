@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "operations",
+    "outDir": "dist"
+  },
+  "include": [
+    "operations/inspect.ts",
+    "operations/api-command.ts",
+    "operations/bootstrap.ts",
+    "operations/healthcheck.ts",
+    "operations/validate-recovery.ts",
+    "operations/check-ai-connection.ts"
+  ]
+}

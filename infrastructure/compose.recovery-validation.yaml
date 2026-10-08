@@ -1,0 +1,7 @@
+# Use only with a disposable restored database. Never apply this to runtime services.
+services:
+  operations:
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m,mode=1777
+      - /app/node_modules/.vite-temp:rw,nosuid,size=16m,uid=1000,gid=1000
+      - /app/node_modules/.vite:rw,nosuid,size=16m,uid=1000,gid=1000

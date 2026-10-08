@@ -11,6 +11,15 @@ importers:
       '@eslint/js':
         specifier: 10.0.1
         version: 10.0.1(eslint@10.11.0)
+      '@playwright/test':
+        specifier: 1.63.0
+        version: 1.63.0
+      '@roco/config':
+        specifier: workspace:*
+        version: link:packages/config
+      '@roco/db':
+        specifier: workspace:*
+        version: link:packages/db
       '@types/node':
         specifier: 24.19.0
         version: 24.19.0
@@ -41,6 +50,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@roco/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@roco/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -50,12 +62,18 @@ importers:
       '@roco/integrations':
         specifier: workspace:*
         version: link:../../packages/integrations
+      '@roco/opportunities':
+        specifier: workspace:*
+        version: link:../../packages/opportunities
       '@roco/seo-core':
         specifier: workspace:*
         version: link:../../packages/seo-core
       '@roco/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@roco/workflow':
+        specifier: workspace:*
+        version: link:../../packages/workflow
       fastify:
         specifier: 5.12.5
         version: 5.12.5
@@ -68,15 +86,24 @@ importers:
 
   apps/dashboard:
     dependencies:
+      '@roco/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@roco/workflow':
+        specifier: workspace:*
+        version: link:../../packages/workflow
       next:
         specifier: 16.3.6
-        version: 16.3.6(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 16.3.6(@playwright/test@1.63.0)(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
         specifier: 19.3.0
         version: 19.3.0
       react-dom:
         specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
     devDependencies:
       '@types/react':
         specifier: 19.3.0
@@ -87,6 +114,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@roco/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@roco/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -99,15 +129,36 @@ importers:
       '@roco/integrations':
         specifier: workspace:*
         version: link:../../packages/integrations
+      '@roco/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
+      '@roco/opportunities':
+        specifier: workspace:*
+        version: link:../../packages/opportunities
       '@roco/seo-core':
         specifier: workspace:*
         version: link:../../packages/seo-core
       '@roco/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@roco/workflow':
+        specifier: workspace:*
+        version: link:../../packages/workflow
       pg-boss:
         specifier: 12.35.0
         version: 12.35.0
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+
+  packages/agents:
+    dependencies:
+      '@roco/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@roco/opportunities':
+        specifier: workspace:*
+        version: link:../opportunities
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -138,12 +189,27 @@ importers:
 
   packages/db:
     dependencies:
+      '@roco/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@roco/config':
+        specifier: workspace:*
+        version: link:../config
       '@roco/integrations':
         specifier: workspace:*
         version: link:../integrations
+      '@roco/opportunities':
+        specifier: workspace:*
+        version: link:../opportunities
       '@roco/seo-core':
         specifier: workspace:*
         version: link:../seo-core
+      '@roco/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@roco/workflow':
+        specifier: workspace:*
+        version: link:../workflow
       dotenv:
         specifier: 17.3.1
         version: 17.3.1
@@ -170,6 +236,18 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
 
+  packages/llm:
+    dependencies:
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+
+  packages/opportunities:
+    dependencies:
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+
   packages/seo-core: {}
 
   packages/shared:
@@ -182,6 +260,18 @@ importers:
         version: 4.6.5
 
   packages/testkit: {}
+
+  packages/workflow:
+    dependencies:
+      '@roco/agents':
+        specifier: workspace:*
+        version: link:../agents
+      '@roco/opportunities':
+        specifier: workspace:*
+        version: link:../opportunities
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
 
 packages:
 
@@ -988,6 +1078,11 @@ packages:
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
+
+  '@playwright/test@1.63.0':
+    resolution: {integrity: sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@rolldown/binding-android-arm-eabi@1.2.11':
     resolution: {integrity: sha512-A5kXfGKvKWWZE0TtPrfsvT+q4Y5d1QG8gGUzpYjGydM+fARM9MuX90PrXYXe0XbsDVgyxxNzHo6giCj90bsFNw==}
@@ -1918,6 +2013,16 @@ packages:
     resolution: {integrity: sha512-r34yH/GlQpKZbU1BvFFqOjhISRo1MNx1tWYsYvmj6KIRHSPMT2+yHOEb1SG6NMvRoHRF0a07kCOox/9yakl1vg==}
     hasBin: true
 
+  playwright-core@1.63.0:
+    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.63.0:
+    resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   postcss@8.5.23:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
@@ -2785,6 +2890,10 @@ snapshots:
 
   '@pinojs/redact@0.4.0': {}
 
+  '@playwright/test@1.63.0':
+    dependencies:
+      playwright: 1.63.0
+
   '@rolldown/binding-android-arm-eabi@1.2.11':
     optional: true
 
@@ -3550,7 +3659,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next@16.3.6(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  next@16.3.6(@playwright/test@1.63.0)(@types/node@24.19.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
     dependencies:
       '@next/env': 16.3.6
       '@swc/helpers': 0.5.23
@@ -3569,6 +3678,7 @@ snapshots:
       '@next/swc-linux-x64-musl': 16.3.6
       '@next/swc-win32-arm64-msvc': 16.3.6
       '@next/swc-win32-x64-msvc': 16.3.6
+      '@playwright/test': 1.63.0
       sharp: 0.35.4(@types/node@24.19.0)
     transitivePeerDependencies:
       - '@babel/core'
@@ -3688,6 +3798,12 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.2.0
+
+  playwright-core@1.63.0: {}
+
+  playwright@1.63.0:
+    dependencies:
+      playwright-core: 1.63.0
 
   postcss@8.5.23:
     dependencies:

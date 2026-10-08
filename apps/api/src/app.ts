@@ -1,4 +1,22 @@
-import Fastify from "fastify";
+import {
+  registerControlRoutes,
+  type ControlApiService,
+} from "./control-routes.js";
+import {
+  registerWorkflowRoutes,
+  type WorkflowApiService,
+} from "./workflow-routes.js";
+import { triggerAnalysisSchema } from "@roco/agents";
+import { timingSafeEqual, createHash } from "node:crypto";
+import {
+  statusChangeSchema,
+  type StatusChange,
+  detectionRequestSchema,
+  listFilterSchema,
+  type ListFilter,
+  type OpportunityConfig,
+} from "@roco/opportunities";
+import Fastify, { LogController } from "fastify";
 import { z } from "zod";
 
 import { resolveCorrelationId, type Logger } from "@roco/shared";
@@ -13,6 +31,51 @@ export interface AppDependencies {
   readonly readiness: () => Promise<ReadinessStatus>;
   readonly crawls?: CrawlApiService;
   readonly integrations?: IntegrationApiService;
+  readonly opportunities?: OpportunityApiService;
+  readonly opportunityToken?: string | undefined;
+  readonly agents?: AgentApiService;
+  readonly workflow?: WorkflowApiService;
+  readonly control?: ControlApiService;
+  readonly workflowAccess?: string | undefined;
+  readonly agentToken?: string | undefined;
+  readonly agentsEnabled?: boolean;
+}
+
+export interface AgentApiService {
+  retry(
+    this: void,
+    input: { siteId: string; runId: string; correlationId: string },
+  ): Promise<{ id: string; status: string }>;
+  trigger(
+    this: void,
+    input: {
+      siteId: string;
+      opportunityId: string;
+      correlationId: string;
+      idempotencyKey?: string | undefined;
+    },
+  ): Promise<{ id: string; status: string }>;
+  inspect(this: void, siteId: string, id: string): Promise<unknown>;
+  draft(this: void, siteId: string, id: string): Promise<unknown>;
+}
+export interface OpportunityApiService {
+  changeStatus(
+    this: void,
+    input: StatusChange & { siteId: string; id: string; correlationId: string },
+  ): Promise<void>;
+  trigger(
+    this: void,
+    input: {
+      siteId: string;
+      endDate?: string | undefined;
+      config: OpportunityConfig;
+      idempotencyKey?: string | undefined;
+      correlationId: string;
+    },
+  ): Promise<{ id: string; status: string }>;
+  list(this: void, siteId: string, filter: ListFilter): Promise<unknown>;
+  detail(this: void, siteId: string, id: string): Promise<unknown>;
+  run(this: void, siteId: string, id: string): Promise<unknown>;
 }
 
 export interface IntegrationApiService {
@@ -119,15 +182,50 @@ const readinessResponseSchema = {
 export function buildApp(dependencies: AppDependencies) {
   const app = Fastify({
     loggerInstance: dependencies.logger,
+    logController: new LogController({ disableRequestLogging: true }),
     genReqId(request) {
       return resolveCorrelationId(request.headers["x-correlation-id"]);
     },
   });
 
+  if (dependencies.control)
+    registerControlRoutes(
+      app,
+      dependencies.control,
+      dependencies.workflowAccess,
+    );
+
+  app.addHook("onResponse", (request, reply, done) => {
+    request.log.info(
+      {
+        requestId: request.id,
+        method: request.method,
+        route: request.routeOptions.url ?? "UNMATCHED",
+        statusCode: reply.statusCode,
+        latencyMs: reply.elapsedTime,
+      },
+      "request completed",
+    );
+    done();
+  });
   app.setErrorHandler((error, request, reply) => {
-    request.log.error({ err: error, requestId: request.id }, "request failed");
-    void reply.code(500).send({
-      error: "INTERNAL_SERVER_ERROR",
+    const clientError =
+      error instanceof Error &&
+      "statusCode" in error &&
+      typeof error.statusCode === "number" &&
+      error.statusCode >= 400 &&
+      error.statusCode < 500;
+    const status = clientError ? (error.statusCode as number) : 500;
+    request.log.error(
+      {
+        requestId: request.id,
+        errorCode: "REQUEST_FAILED",
+        statusCode: status,
+      },
+      "request failed",
+    );
+    void reply.code(status).send({
+      error: clientError ? "INVALID_REQUEST" : "INTERNAL_SERVER_ERROR",
       message: "The request could not be completed.",
       requestId: request.id,
     });
@@ -194,9 +292,7 @@ export function buildApp(dependencies: AppDependencies) {
         return reply.code(400).send({
           error: "CRAWL_REQUEST_REJECTED",
           message:
-            error instanceof Error
-              ? error.message
-              : "The crawl request was rejected.",
+            "The crawl request was rejected. Check the site scope and request limits.",
           requestId: request.id,
         });
       }
@@ -304,9 +400,7 @@ export function buildApp(dependencies: AppDependencies) {
           return reply.code(400).send({
             error: "INTEGRATION_REQUEST_REJECTED",
             message:
-              error instanceof Error
-                ? error.message
-                : "The synchronization request was rejected.",
+              "The synchronization request was rejected. Check property configuration, dates and site scope.",
             requestId: request.id,
           });
         }
@@ -345,5 +439,215 @@ export function buildApp(dependencies: AppDependencies) {
     });
   }
 
+  if (dependencies.opportunities) {
+    const opportunityParams = z.object({
+      siteId: z.string().uuid(),
+      id: z.string().uuid().optional(),
+    });
+    const tokenHash = dependencies.opportunityToken
+      ? createHash("sha256").update(dependencies.opportunityToken).digest()
+      : null;
+    app.register((routes, _options, done) => {
+      routes.addHook("onRequest", (request, reply, done) => {
+        if (tokenHash === null)
+          return reply
+            .code(503)
+            .send({ error: "OPPORTUNITY_ACCESS_NOT_CONFIGURED" });
+        const header = request.headers.authorization;
+        if (
+          !header?.startsWith("Bearer ") ||
+          !timingSafeEqual(
+            tokenHash,
+            createHash("sha256").update(header.slice(7)).digest(),
+          )
+        )
+          return reply.code(401).send({ error: "UNAUTHORIZED" });
+        done();
+      });
+      routes.patch(
+        "/sites/:siteId/opportunities/:id/status",
+        async (request, reply) => {
+          const params = opportunityParams.safeParse(request.params);
+          const body = statusChangeSchema.safeParse(request.body);
+          if (!params.success || !params.data.id || !body.success)
+            return reply.code(400).send({ error: "INVALID_STATUS_CHANGE" });
+          try {
+            await dependencies.opportunities!.changeStatus({
+              siteId: params.data.siteId,
+              id: params.data.id,
+              correlationId: request.id,
+              ...body.data,
+            });
+            return reply.code(204).send();
+          } catch {
+            return reply.code(409).send({
+              error: "STATUS_CHANGE_REJECTED",
+              message: "Check the configured actor and current status.",
+            });
+          }
+        },
+      );
+      routes.post("/sites/:siteId/opportunity-runs", async (request, reply) => {
+        const params = opportunityParams.safeParse(request.params);
+        const body = detectionRequestSchema.safeParse(request.body ?? {});
+        if (!params.success || !body.success)
+          return reply.code(400).send({ error: "INVALID_DETECTION_REQUEST" });
+        try {
+          const run = await dependencies.opportunities!.trigger({
+            siteId: params.data.siteId,
+            correlationId: request.id,
+            ...body.data,
+          });
+          return reply.code(202).send(run);
+        } catch {
+          request.log.warn(
+            { requestId: request.id, siteId: params.data.siteId },
+            "opportunity command rejected",
+          );
+          return reply.code(400).send({
+            error: "DETECTION_REQUEST_REJECTED",
+            message: "Check the site, date window and idempotency key.",
+          });
+        }
+      });
+      routes.get("/sites/:siteId/opportunities", async (request, reply) => {
+        const params = opportunityParams.safeParse(request.params);
+        const filter = listFilterSchema.safeParse(request.query);
+        if (!params.success || !filter.success)
+          return reply.code(400).send({ error: "INVALID_OPPORTUNITY_FILTER" });
+        return dependencies.opportunities!.list(
+          params.data.siteId,
+          filter.data,
+        );
+      });
+      for (const [path, method] of [
+        ["opportunities", "detail"],
+        ["opportunity-runs", "run"],
+      ] as const) {
+        routes.get(`/sites/:siteId/${path}/:id`, async (request, reply) => {
+          const params = opportunityParams.safeParse(request.params);
+          if (!params.success || !params.data.id)
+            return reply.code(400).send({ error: "INVALID_OPPORTUNITY_ID" });
+          const result = await dependencies.opportunities![method](
+            params.data.siteId,
+            params.data.id,
+          );
+          if (result === null)
+            return reply.code(404).send({ error: "NOT_FOUND" });
+          return result;
+        });
+      }
+      done();
+    });
+  }
+  if (dependencies.agents) {
+    const parameters = z.object({
+      siteId: z.string().uuid(),
+      id: z.string().uuid(),
+    });
+    const tokenHash = dependencies.agentToken
+      ? createHash("sha256").update(dependencies.agentToken).digest()
+      : null;
+    app.register((routes, _options, done) => {
+      routes.addHook("onRequest", (request, reply, next) => {
+        if (!tokenHash)
+          return reply.code(503).send({ error: "AGENT_ACCESS_NOT_CONFIGURED" });
+        const header = request.headers.authorization;
+        if (
+          !header?.startsWith("Bearer ") ||
+          !timingSafeEqual(
+            tokenHash,
+            createHash("sha256").update(header.slice(7)).digest(),
+          )
+        )
+          return reply.code(401).send({ error: "UNAUTHORIZED" });
+        next();
+      });
+      routes.post(
+        "/sites/:siteId/opportunities/:id/analysis",
+        async (request, reply) => {
+          if (!dependencies.agentsEnabled)
+            return reply.code(503).send({ error: "AGENT_LAYER_DISABLED" });
+          const params = parameters.safeParse(request.params);
+          const body = triggerAnalysisSchema.safeParse(request.body ?? {});
+          if (!params.success || !body.success)
+            return reply.code(400).send({ error: "INVALID_ANALYSIS_REQUEST" });
+          try {
+            const run = await dependencies.agents!.trigger({
+              siteId: params.data.siteId,
+              opportunityId: params.data.id,
+              correlationId: request.id,
+              ...body.data,
+            });
+            return reply.code(202).send(run);
+          } catch {
+            return reply.code(409).send({
+              error: "ANALYSIS_REQUEST_REJECTED",
+              message:
+                "Check opportunity evidence, configured actor and idempotency key.",
+            });
+          }
+        },
+      );
+      routes.post(
+        "/sites/:siteId/agent-runs/:id/retry",
+        async (request, reply) => {
+          if (!dependencies.agentsEnabled)
+            return reply.code(503).send({ error: "AGENT_LAYER_DISABLED" });
+          const params = parameters.safeParse(request.params);
+          if (
+            !params.success ||
+            !z.strictObject({}).safeParse(request.body ?? {}).success
+          )
+            return reply.code(400).send({ error: "INVALID_AGENT_RETRY" });
+          try {
+            return reply.code(202).send(
+              await dependencies.agents!.retry({
+                siteId: params.data.siteId,
+                runId: params.data.id,
+                correlationId: request.id,
+              }),
+            );
+          } catch {
+            return reply.code(409).send({ error: "AGENT_RETRY_REJECTED" });
+          }
+        },
+      );
+      routes.get("/sites/:siteId/agent-runs/:id", async (request, reply) => {
+        const params = parameters.safeParse(request.params);
+        if (!params.success)
+          return reply.code(400).send({ error: "INVALID_AGENT_RUN" });
+        const result = await dependencies.agents!.inspect(
+          params.data.siteId,
+          params.data.id,
+        );
+        return result === null
+          ? reply.code(404).send({ error: "NOT_FOUND" })
+          : result;
+      });
+      routes.get(
+        "/sites/:siteId/agent-runs/:id/draft",
+        async (request, reply) => {
+          const params = parameters.safeParse(request.params);
+          if (!params.success)
+            return reply.code(400).send({ error: "INVALID_AGENT_RUN" });
+          const result = await dependencies.agents!.draft(
+            params.data.siteId,
+            params.data.id,
+          );
+          return result === null
+            ? reply.code(404).send({ error: "DRAFT_NOT_AVAILABLE" })
+            : result;
+        },
+      );
+      done();
+    });
+  }
+  if (dependencies.workflow)
+    registerWorkflowRoutes(
+      app,
+      dependencies.workflow,
+      dependencies.workflowAccess,
+    );
   return app;
 }

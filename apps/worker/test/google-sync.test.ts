@@ -124,7 +124,7 @@ describe("Google worker retries and failures", () => {
         client,
         property: "sc-domain:example.com",
       })([job]),
-    ).rejects.toThrow("secret provider detail");
+    ).rejects.toThrow("SYNC_FAILED");
     expect(markRunning).toHaveBeenCalledWith(syncRunId);
     expect(failure).toHaveBeenCalledWith(
       syncRunId,

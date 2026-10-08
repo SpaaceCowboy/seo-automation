@@ -5,10 +5,18 @@ import {
   createCrawlRepository,
   createDatabase,
   createIntegrationRepository,
+  createOpportunityRepository,
+  createAgentRepository,
+  createWorkflowRepository,
+  createMeasurementRepository,
+  createControlRepository,
 } from "@roco/db";
 import { isInternalUrl } from "@roco/seo-core";
 import {
   CRAWL_SITE_QUEUE,
+  OPPORTUNITY_DETECTION_QUEUE,
+  AGENT_ANALYSIS_QUEUE,
+  CHANGE_MEASUREMENT_QUEUE,
   GA4_SYNC_QUEUE,
   GSC_BACKFILL_QUEUE,
   GSC_SYNC_QUEUE,
@@ -24,6 +32,7 @@ const bootstrapLogger = createLogger({
   environment: process.env.NODE_ENV ?? "development",
   level: "info",
 });
+let startupCleanup: (() => Promise<void>) | undefined;
 
 async function start(): Promise<void> {
   loadEnvironment();
@@ -43,6 +52,16 @@ async function start(): Promise<void> {
     application_name: "roco-seo-api-queue",
     max: 2,
   });
+  database.pool.on("error", (error) =>
+    logger.error({ err: error }, "API database connection failed"),
+  );
+  startupCleanup = async () => {
+    try {
+      await boss.stop({ graceful: false, close: true });
+    } finally {
+      await database.close();
+    }
+  };
   boss.on("error", (error) =>
     logger.error({ err: error }, "API pg-boss error"),
   );
@@ -68,7 +87,161 @@ async function start(): Promise<void> {
       deleteAfterSeconds: 604_800,
     });
   }
+  await boss.createQueue(OPPORTUNITY_DETECTION_QUEUE, {
+    retryLimit: 2,
+    retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 1800,
+    deleteAfterSeconds: 604800,
+  });
+  const opportunityRepository = createOpportunityRepository(database.db);
+  const agentRepository = createAgentRepository(database.db, database.pool);
+  await boss.createQueue(AGENT_ANALYSIS_QUEUE, {
+    retryLimit: 2,
+    retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 1800,
+    deleteAfterSeconds: 604800,
+  });
+  const workflowRepository = createWorkflowRepository(database.db);
+  const measurementRepository = createMeasurementRepository(database.db);
+  await boss.createQueue(CHANGE_MEASUREMENT_QUEUE, {
+    retryLimit: 2,
+    retryDelay: 30,
+    retryBackoff: true,
+    expireInSeconds: 1800,
+    deleteAfterSeconds: 604800,
+  });
   const app = buildApp({
+    control: createControlRepository(database.db),
+    workflowAccess: config.WORKFLOW_ACCESS_JSON,
+    workflow: {
+      async invoke(operation, siteId, id, body, p) {
+        switch (operation) {
+          case "CREATE":
+            return workflowRepository.create(siteId, body, p);
+          case "LIST":
+            return workflowRepository.list(siteId, body, p);
+          case "DETAIL":
+            return workflowRepository.detail(siteId, id!, p);
+          case "REVISE":
+            return workflowRepository.revise(siteId, id!, body, p);
+          case "TRANSITION":
+            return workflowRepository.transition(siteId, id!, body, p);
+          case "IMPLEMENT":
+            return workflowRepository.implement(siteId, id!, body, p);
+          case "LEDGER":
+            return workflowRepository.ledger(siteId, id!, p);
+          case "REVERT":
+            return workflowRepository.event(siteId, id!, "REVERT", body, p);
+          case "CORRECTION":
+            return workflowRepository.event(siteId, id!, "CORRECTION", body, p);
+          case "BASELINE":
+            return workflowRepository.refreshBaseline(siteId, id!, body, p);
+          case "HISTORY":
+            return measurementRepository.history(siteId, id!, p);
+          case "MEASURE30":
+          case "MEASURE60":
+          case "MEASURE90": {
+            const horizon = Number(operation.slice(7)) as 30 | 60 | 90;
+            const run = await measurementRepository.createRun(
+              siteId,
+              id!,
+              horizon,
+              body,
+              p,
+            );
+            if (run.status !== "SUCCEEDED")
+              await boss.send(
+                CHANGE_MEASUREMENT_QUEUE,
+                {
+                  runId: run.id,
+                  siteId: run.siteId,
+                  correlationId: run.correlationId,
+                },
+                { singletonKey: run.id },
+              );
+            return { id: run.id, status: run.status };
+          }
+        }
+      },
+    },
+    agentToken: config.AGENT_API_TOKEN,
+    agentsEnabled: config.AGENTS_ENABLED,
+    agents: {
+      async retry(input) {
+        if (!config.AGENT_ACTOR_ID)
+          throw new Error("AGENT_ACTOR_ID is required.");
+        const run = await agentRepository.retry({
+          ...input,
+          actorId: config.AGENT_ACTOR_ID,
+        });
+        await boss.send(
+          AGENT_ANALYSIS_QUEUE,
+          {
+            runId: run.id,
+            siteId: run.siteId,
+            correlationId: run.correlationId,
+          },
+          { singletonKey: run.id },
+        );
+        return { id: run.id, status: run.status };
+      },
+      async trigger(input) {
+        if (!config.AGENT_ACTOR_ID)
+          throw new Error("AGENT_ACTOR_ID is required.");
+        const run = await agentRepository.createRun({
+          ...input,
+          actorId: config.AGENT_ACTOR_ID,
+        });
+        if (run.status !== "SUCCEEDED")
+          await boss.send(
+            AGENT_ANALYSIS_QUEUE,
+            {
+              runId: run.id,
+              siteId: run.siteId,
+              correlationId: run.correlationId,
+            },
+            { singletonKey: run.id },
+          );
+        return { id: run.id, status: run.status };
+      },
+      inspect: (siteId, id) => agentRepository.inspect(siteId, id),
+      draft: (siteId, id) => agentRepository.draft(siteId, id),
+    },
+    opportunityToken: config.OPPORTUNITY_API_TOKEN,
+    opportunities: {
+      async changeStatus(input) {
+        if (config.OPPORTUNITY_ACTOR_ID === undefined)
+          throw new Error("OPPORTUNITY_ACTOR_ID is not configured.");
+        await opportunityRepository.changeStatus({
+          ...input,
+          actorId: config.OPPORTUNITY_ACTOR_ID,
+        });
+      },
+      async trigger(input) {
+        const run = await opportunityRepository.createRun(input);
+        if (run.status !== "SUCCEEDED")
+          await boss.send(
+            OPPORTUNITY_DETECTION_QUEUE,
+            {
+              runId: run.id,
+              siteId: run.siteId,
+              correlationId: run.correlationId,
+            },
+            { singletonKey: run.id },
+          );
+        return { id: run.id, status: run.status };
+      },
+      list: (siteId, filter) => opportunityRepository.list(siteId, filter),
+      detail: (siteId, id) => opportunityRepository.detail(siteId, id),
+      async run(siteId, id) {
+        const run = await opportunityRepository.getRun(id);
+        if (!run || run.siteId !== siteId) return null;
+        const { inputSnapshot, ...summary } = run;
+        return { ...summary, sourceCaptured: inputSnapshot !== null };
+      },
+    },
     logger,
     async readiness() {
       const [databaseReady, queueReady] = await Promise.all([
@@ -282,5 +455,13 @@ try {
   await start();
 } catch (error) {
   bootstrapLogger.fatal({ err: error }, "API failed to start");
+  try {
+    await startupCleanup?.();
+  } catch {
+    bootstrapLogger.error(
+      { errorCode: "API_STARTUP_CLEANUP_FAILED" },
+      "API startup cleanup failed",
+    );
+  }
   process.exitCode = 1;
 }

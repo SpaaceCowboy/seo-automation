@@ -1,15 +1,10 @@
-import { fileURLToPath } from "node:url";
-
-import { config as loadDotenv } from "dotenv";
+import { loadEnvironment } from "@roco/config";
 import { eq } from "drizzle-orm";
 
 import { createDatabase } from "./index.js";
 import { siteHosts, sites } from "./schema.js";
 
-loadDotenv({
-  path: fileURLToPath(new URL("../../../.env", import.meta.url)),
-  quiet: true,
-});
+loadEnvironment();
 
 const [name, originInput, timezone] = process.argv
   .slice(2)

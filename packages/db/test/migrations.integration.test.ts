@@ -1,3 +1,8 @@
+import { configSchema, detectOpportunities } from "@roco/opportunities";
+import {
+  config as opportunityConfig,
+  fixture as opportunityFixture,
+} from "../../opportunities/test/fixtures.js";
 import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
@@ -7,6 +12,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createCrawlRepository,
   createIntegrationRepository,
+  createOpportunityRepository,
+  type OpportunityRepository,
   migrateDatabase,
 } from "../src/index.js";
 import { mapGoogleUrl } from "@roco/integrations";
@@ -60,6 +67,11 @@ describe("foundation migrations", () => {
           "pagespeed_snapshots",
           "search_queries",
           "link_edges",
+          "opportunities",
+          "opportunity_events",
+          "opportunity_runs",
+          "opportunity_scores",
+          "scoring_configs",
           "page_metrics",
           "page_snapshots",
           "pages",
@@ -92,12 +104,17 @@ describe("foundation migrations", () => {
       "issue_occurrences",
       "jobs",
       "link_edges",
+      "opportunities",
+      "opportunity_events",
+      "opportunity_runs",
+      "opportunity_scores",
       "page_metrics",
       "page_snapshots",
       "pages",
       "pagespeed_snapshots",
       "redirect_hops",
       "robots_observations",
+      "scoring_configs",
       "search_queries",
       "site_hosts",
       "sitemap_entries",
@@ -294,7 +311,7 @@ describe("foundation migrations", () => {
       ),
     ).rejects.toMatchObject({ code: "23505" });
 
-    const key = randomUUID();
+    const key: string = randomUUID();
     await pool.query(
       "insert into jobs (job_type, idempotency_key, correlation_id) values ($1, $2, $3)",
       ["foundation.noop", key, randomUUID()],
@@ -362,5 +379,346 @@ describe("foundation migrations", () => {
       [siteId],
     );
     expect(result.rows[0]).toEqual({ count: "1", clicks: 2 });
+  });
+});
+
+// Phase 4 uses the same isolated database and test file so the existing truncation
+// cannot race a second integration suite.
+describe("Phase 4 historical opportunities", () => {
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    application_name: "roco-phase4-test",
+  });
+  let repository: OpportunityRepository;
+  beforeAll(async () => {
+    await migrateDatabase(pool);
+    repository = createOpportunityRepository(drizzle(pool, { schema }));
+  });
+  afterAll(async () => {
+    await pool.end();
+  });
+  async function seed() {
+    const siteId = randomUUID();
+    const data = opportunityFixture();
+    const origin = `https://${randomUUID()}.example.test`;
+    await pool.query(
+      "insert into sites(id,name,canonical_origin,timezone) values($1,'Phase 4 fixture',$2,'UTC')",
+      [siteId, origin],
+    );
+    const pageIds = new Map<string, string>();
+    for (const p of data.crawl!.pages) {
+      const id = randomUUID();
+      pageIds.set(p.id, id);
+      const url = p.url.replace("https://example.test", origin);
+      const mapping = mapGoogleUrl(url, {
+        canonicalOrigin: origin,
+        allowedHosts: [
+          { host: new URL(origin).hostname, includeSubdomains: false },
+        ],
+      });
+      await pool.query(
+        "insert into pages(id,site_id,normalized_url,normalized_url_hash,normalization_version) values($1,$2,$3,$4,'url-v1')",
+        [id, siteId, url, mapping.normalizedUrlHash],
+      );
+    }
+    const queryIds = new Map<string, string>();
+    for (const key of ["forex", "gap"]) {
+      const id = randomUUID();
+      queryIds.set(key, id);
+      await pool.query(
+        "insert into search_queries(id,site_id,display_query,normalized_query,query_hash) values($1,$2,$3,$3,$4)",
+        [id, siteId, key, randomUUID()],
+      );
+    }
+    const pageSync = randomUUID();
+    const pairSync = randomUUID();
+    for (const [id, dimension] of [
+      [pageSync, "PAGE"],
+      [pairSync, "PAGE_QUERY"],
+    ])
+      await pool.query(
+        "insert into integration_sync_runs(id,site_id,provider,job_type,dimension_set,start_date,end_date,status,idempotency_key) values($1,$2,'GSC','sync-gsc',$3,'2026-09-15','2026-09-28','SUCCEEDED',$4)",
+        [id, siteId, dimension, randomUUID()],
+      );
+    for (const row of data.pageMetrics) {
+      const url = row.url.replace("https://example.test", origin);
+      await pool.query(
+        "insert into gsc_page_daily(site_id,sync_run_id,page_id,date,observed_url,normalized_url,normalized_url_hash,normalization_version,clicks,impressions,ctr,position) values($1,$2,$3,$4,$5,$5,$6,'url-v1',$7,$8,$9,$10)",
+        [
+          siteId,
+          pageSync,
+          pageIds.get(row.pageId!),
+          row.date,
+          url,
+          mapGoogleUrl(url, {
+            canonicalOrigin: origin,
+            allowedHosts: [
+              { host: new URL(origin).hostname, includeSubdomains: false },
+            ],
+          }).normalizedUrlHash,
+          row.clicks,
+          row.impressions,
+          row.clicks / row.impressions,
+          row.position,
+        ],
+      );
+    }
+    for (const row of data.pageQueryMetrics) {
+      const url = row.url.replace("https://example.test", origin);
+      await pool.query(
+        "insert into gsc_page_query_daily(site_id,sync_run_id,page_id,query_id,date,observed_url,normalized_url,normalized_url_hash,normalization_version,clicks,impressions,ctr,position) values($1,$2,$3,$4,$5,$6,$6,$7,'url-v1',$8,$9,$10,$11)",
+        [
+          siteId,
+          pairSync,
+          pageIds.get(row.pageId!),
+          queryIds.get(row.queryId!),
+          row.date,
+          url,
+          mapGoogleUrl(url, {
+            canonicalOrigin: origin,
+            allowedHosts: [
+              { host: new URL(origin).hostname, includeSubdomains: false },
+            ],
+          }).normalizedUrlHash,
+          row.clicks,
+          row.impressions,
+          row.clicks / row.impressions,
+          row.position,
+        ],
+      );
+    }
+    const crawlId = randomUUID();
+    await pool.query(
+      "insert into crawl_runs(id,site_id,status,start_url,idempotency_key,config_snapshot,finished_at) values($1,$2,'SUCCEEDED',$3,$4,'{}','2026-09-28T10:00:00Z')",
+      [crawlId, siteId, origin, randomUUID()],
+    );
+    for (const p of data.crawl!.pages) {
+      const pageId = pageIds.get(p.id)!;
+      await pool.query(
+        "insert into page_snapshots(crawl_run_id,page_id,observed_url,http_status,fetch_status,response_ms,robots_allowed,is_indexable,indexability_reason,crawl_depth,parser_version,fetched_at) values($1,$2,$3,200,'SUCCESS',10,true,true,'INDEXABLE',$4,'cheerio-v1','2026-09-28T10:00:00Z')",
+        [
+          crawlId,
+          pageId,
+          p.url.replace("https://example.test", origin),
+          p.depth,
+        ],
+      );
+      await pool.query(
+        "insert into page_metrics(crawl_run_id,page_id,crawl_depth,incoming_internal_links,outgoing_internal_links,is_orphan) values($1,$2,$3,$4,0,$5)",
+        [crawlId, pageId, p.depth, p.incoming, p.orphan],
+      );
+    }
+    return { siteId, origin, pageIds, pageSync };
+  }
+  const command = (siteId: string, key: string = randomUUID()) => ({
+    siteId,
+    endDate: "2026-09-28",
+    config: opportunityConfig,
+    idempotencyKey: key,
+    correlationId: "phase4-integration",
+  });
+  it("previews source data in a read-only transaction without creating configuration or runs", async () => {
+    const { siteId } = await seed();
+    const input = await repository.previewInput(
+      siteId,
+      "2026-09-28",
+      opportunityConfig,
+    );
+    expect(
+      detectOpportunities(input, opportunityConfig).candidates,
+    ).toHaveLength(8);
+    const counts = await pool.query<{ runs: number; configs: number }>(
+      "select (select count(*)::int from opportunity_runs where site_id=$1) runs,(select count(*)::int from scoring_configs where site_id=$1) configs",
+      [siteId],
+    );
+    expect(counts.rows[0]).toEqual({ runs: 0, configs: 0 });
+  });
+  it("freezes source evidence across retries and enforces immutable configurations and results", async () => {
+    const { siteId } = await seed();
+    const run = await repository.createRun(command(siteId));
+    const capture = (await repository.captureInput(run.id))!;
+    expect(capture.input.pageMetrics).toHaveLength(42);
+    expect(capture.input.pageQueryMetrics).toHaveLength(28);
+    await pool.query(
+      "update gsc_page_daily set clicks=clicks+1 where site_id=$1",
+      [siteId],
+    );
+    const retried = (await repository.captureInput(run.id))!;
+    expect(retried.input).toEqual(capture.input);
+    const result = detectOpportunities(capture.input, capture.config);
+    await repository.persistResult(run.id, result, 10);
+    await repository.persistResult(run.id, result, 10);
+    expect((await repository.getRun(run.id))?.statistics).toMatchObject({
+      created: 8,
+      updated: 0,
+    });
+    await expect(
+      pool.query(
+        "update scoring_configs set version='changed' where site_id=$1",
+        [siteId],
+      ),
+    ).rejects.toThrow("immutable");
+    await expect(
+      pool.query(
+        "update opportunity_runs set input_snapshot='{}' where id=$1",
+        [run.id],
+      ),
+    ).rejects.toThrow("immutable");
+    await expect(
+      pool.query("delete from opportunity_scores where run_id=$1", [run.id]),
+    ).rejects.toThrow("immutable");
+  });
+  it("deduplicates repeated runs, preserves acknowledgement/dismissal and records resolution/reopen history", async () => {
+    const { siteId } = await seed();
+    const first = await repository.createRun(command(siteId));
+    const capture = (await repository.captureInput(first.id))!;
+    const result = detectOpportunities(capture.input, capture.config);
+    await repository.persistResult(first.id, result, 1);
+    const actorId = randomUUID();
+    await pool.query(
+      "insert into actors(id,type,display_name) values($1,'HUMAN','Fixture operator')",
+      [actorId],
+    );
+    const editable = await pool.query<{ id: string; type: string }>(
+      "select id,type from opportunities where site_id=$1 and type in ('CTR','QUICK_WIN')",
+      [siteId],
+    );
+    for (const o of editable.rows)
+      await repository.changeStatus({
+        siteId,
+        id: o.id,
+        actorId,
+        correlationId: "operator",
+        expectedStatus: "OPEN",
+        status: o.type === "CTR" ? "DISMISSED" : "ACKNOWLEDGED",
+        reason: "Fixture review",
+      });
+    expect(
+      (
+        await pool.query(
+          "select count(*)::int as count from audit_events where actor_id=$1",
+          [actorId],
+        )
+      ).rows[0].count,
+    ).toBe(3);
+    await expect(
+      repository.changeStatus({
+        siteId,
+        id: editable.rows[0]!.id,
+        actorId: randomUUID(),
+        correlationId: "forged",
+        expectedStatus: "OPEN",
+        status: "DISMISSED",
+        reason: "Unattributed",
+      }),
+    ).rejects.toThrow("active configured operator");
+    const second = await repository.createRun(command(siteId));
+    await repository.captureInput(second.id);
+    await repository.persistResult(second.id, result, 1);
+    const counts = await pool.query(
+      "select (select count(*)::int from opportunities where site_id=$1) opportunities,(select count(*)::int from opportunity_scores where run_id=any($2::uuid[])) scores",
+      [siteId, [first.id, second.id]],
+    );
+    expect(counts.rows[0]).toEqual({ opportunities: 8, scores: 16 });
+    const statuses = await pool.query(
+      "select type,status from opportunities where site_id=$1",
+      [siteId],
+    );
+    expect(
+      statuses.rows
+        .filter((r) => r.type === "QUICK_WIN")
+        .every((r) => r.status === "ACKNOWLEDGED"),
+    ).toBe(true);
+    expect(statuses.rows.find((r) => r.type === "CTR").status).toBe(
+      "DISMISSED",
+    );
+    const third = await repository.createRun(command(siteId));
+    await repository.captureInput(third.id);
+    await repository.persistResult(third.id, { ...result, candidates: [] }, 1);
+    expect((await repository.getRun(third.id))!.statistics!.resolved).toBe(7);
+    const fourth = await repository.createRun(command(siteId));
+    await repository.captureInput(fourth.id);
+    await repository.persistResult(fourth.id, result, 1);
+    expect((await repository.getRun(fourth.id))!.statistics!.created).toBe(0);
+    const detail = (await repository.detail(
+      siteId,
+      (
+        await pool.query<{ id: string }>(
+          "select id from opportunities where site_id=$1 and type='DECAY'",
+          [siteId],
+        )
+      ).rows[0]!.id,
+    )) as { events: unknown[] };
+    expect(detail.events).toHaveLength(3);
+    expect(
+      await repository.detail(
+        randomUUID(),
+        (
+          await pool.query<{ id: string }>(
+            "select id from opportunities where site_id=$1 limit 1",
+            [siteId],
+          )
+        ).rows[0]!.id,
+      ),
+    ).toBeNull();
+  });
+  it("handles concurrent duplicate delivery and prevents older runs replacing current state", async () => {
+    const { siteId } = await seed();
+    const old = await repository.createRun(command(siteId));
+    const capture = (await repository.captureInput(old.id))!;
+    const result = detectOpportunities(capture.input, capture.config);
+    const current = await repository.createRun(command(siteId));
+    await repository.captureInput(current.id);
+    await Promise.all([
+      repository.persistResult(current.id, result, 1),
+      repository.persistResult(current.id, result, 1),
+    ]);
+    await repository.persistResult(old.id, result, 1);
+    expect(
+      (await repository.getRun(old.id))!.statistics!.projectionSkipped,
+    ).toBe(true);
+    const last = await pool.query(
+      "select distinct last_run_id from opportunities where site_id=$1",
+      [siteId],
+    );
+    expect(last.rows).toEqual([{ last_run_id: current.id }]);
+    await expect(
+      repository.createRun({
+        ...command(siteId, old.idempotencyKey),
+        config: configSchema.parse({
+          ...opportunityConfig,
+          minImpressions: 999,
+        }),
+      }),
+    ).rejects.toThrow("different detection command");
+  });
+  it("does not close opportunities for missing imports and marks expired evidence stale", async () => {
+    const { siteId, pageSync } = await seed();
+    const first = await repository.createRun(command(siteId));
+    const capture = (await repository.captureInput(first.id))!;
+    await repository.persistResult(
+      first.id,
+      detectOpportunities(capture.input, capture.config),
+      1,
+    );
+    await pool.query(
+      "update integration_sync_runs set status='FAILED' where site_id=$1",
+      [siteId],
+    );
+    const second = await repository.createRun(command(siteId));
+    const missing = (await repository.captureInput(second.id))!;
+    const result = detectOpportunities(missing.input, missing.config);
+    expect(result.candidates).toEqual([]);
+    await repository.persistResult(second.id, result, 1);
+    expect((await repository.getRun(second.id))!.statistics!.resolved).toBe(0);
+    await pool.query(
+      "update opportunities set last_detected_at='2020-01-01' where site_id=$1",
+      [siteId],
+    );
+    const third = await repository.createRun(command(siteId));
+    await repository.captureInput(third.id);
+    await repository.persistResult(third.id, result, 1);
+    expect((await repository.getRun(third.id))!.statistics!.staled).toBe(8);
+    expect(pageSync).toBeDefined();
   });
 });

@@ -9,6 +9,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./control": {
+      "types": "./src/control.ts",
+      "import": "./dist/control.js"
     }
   },
   "scripts": {

@@ -140,3 +140,13 @@ A phase is complete only when:
 ## 7. Recommended Phase 1 objective
 
 Create the monorepo foundation, shared configuration and validation, PostgreSQL/Drizzle migration system, pg-boss connection, Fastify health/readiness API, worker health and example no-op job, Next.js dashboard shell, structured logging, Docker Compose development environment, CI-quality checks, and operational documentation. Do not crawl the website in Phase 1.
+
+## 8. Current delivery boundary
+
+Phases 1–7 have been completed and approved by the user. Phase 7.5 hardening and private VPS deployment are implemented; full live acceptance remains pending real Google access and the dependent opportunity/recommendation checks. The Supervisor-only provider connection and $20 policy are installed; semantic inference evaluation remains pending genuine source data. Operational instructions are in `OPERATIONS.md`; real validation evidence and remaining blockers are recorded in `PHASE_7_5_VALIDATION.md`. Phase 8 remains unapproved and unimplemented.
+
+The current Phase 7 instruction explicitly limits alerts to existing domain data. New critical-regression alert rules and scheduled report delivery from FR-021 are deferred for a separately approved scope; the dashboard exposes existing operational failures, technical findings and selectable performance windows. This is an explicit MVP limitation, not evidence that those new rules have been implemented.
+
+## Initial AI rollout clarification
+
+The original proposal's section 22 recommends activating the SEO Supervisor first, then adding specialists after MVP value is demonstrated. The five implemented roles remain available for staged future activation. On 2026-10-08 the user authorized only Supervisor activation with GPT-6.1 Sol, medium reasoning and a $20 monthly cap. Keyword/Technical preference is GPT-6 Luna for a later stage; Content/Internal Linking remain deferred. No automatic site execution is authorized.

@@ -5,6 +5,8 @@ WORKDIR /app
 RUN npm install --global pnpm@11.25.0
 COPY . .
 RUN pnpm install --frozen-lockfile
+ARG SEO_ASSET_PREFIX
+ENV SEO_ASSET_PREFIX=${SEO_ASSET_PREFIX}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 

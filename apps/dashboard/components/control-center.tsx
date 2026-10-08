@@ -60,9 +60,11 @@ async function request(path: string, init?: RequestInit) {
 export function ControlCenter({
   identity,
   csrf,
+  staffLogin = false,
 }: {
   identity: ControlIdentity;
   csrf: string;
+  staffLogin?: boolean;
 }) {
   const [sites, setSites] = useState<ReturnType<typeof siteListSchema.parse>>(
       [],
@@ -225,7 +227,15 @@ export function ControlCenter({
     setOffset(0);
   }
   async function signOut() {
-    const response = await fetch("/api/session", { method: "DELETE" });
+    const response = await fetch(
+      staffLogin ? "/api/auth/sign-out" : "/api/session",
+      {
+        method: staffLogin ? "POST" : "DELETE",
+        ...(staffLogin
+          ? { headers: { "content-type": "application/json" }, body: "{}" }
+          : {}),
+      },
+    );
     if (response.ok) window.location.assign("/sign-in");
     else setError("Sign-out failed. Try again.");
   }
@@ -296,6 +306,11 @@ export function ControlCenter({
             </select>
           </label>
           <div className="top-actions">
+            {staffLogin && (
+              <a className="dashboard-switch" href="/admin">
+                Blog content admin
+              </a>
+            )}
             <button onClick={() => setRtl(!rtl)} aria-pressed={rtl}>
               فارسی / RTL
             </button>

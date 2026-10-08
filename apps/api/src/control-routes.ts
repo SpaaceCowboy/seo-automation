@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { resolvePrincipal } from "./staff-principal.js";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
 import type { Logger } from "@roco/shared";
 import {
@@ -57,14 +57,7 @@ export function registerControlRoutes(
   });
   async function principal(header: string | undefined, correlationId: string) {
     if (!credentials.length) throw new WorkflowError("CONTROL_NOT_CONFIGURED");
-    const hash = createHash("sha256")
-      .update(header?.startsWith("Bearer ") ? header.slice(7) : "")
-      .digest();
-    let found: (typeof credentials)[number] | undefined;
-    for (const credential of credentials)
-      if (timingSafeEqual(credential.hash, hash)) found = credential;
-    if (!found) throw new WorkflowError("UNAUTHORIZED");
-    const p = { actorId: found.actorId, roles: found.roles, correlationId };
+    const p = await resolvePrincipal(header, correlationId, credentials);
     await service.identity(p);
     return p;
   }
@@ -168,6 +161,7 @@ export function registerControlRoutes(
               .code(
                 [
                   "CONTROL_NOT_CONFIGURED",
+                  "STAFF_AUTH_UNAVAILABLE",
                   "INTEGRATION_WORKER_UNAVAILABLE",
                   "INTEGRATION_CHECK_QUEUE_UNAVAILABLE",
                 ].includes(error.code)

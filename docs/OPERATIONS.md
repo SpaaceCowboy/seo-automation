@@ -1,3 +1,5 @@
+> Shared staff login is an optional, coordinated release. See [STAFF_LOGIN_DEPLOYMENT.md](STAFF_LOGIN_DEPLOYMENT.md). Until it is enabled, the existing credential login and operational procedures below remain in effect.
+
 # Roco SEO production operations
 
 Phase 7.5 deployment only. Phase 8 and production website writes are not authorized. This stack has no website write adapter or write credential.

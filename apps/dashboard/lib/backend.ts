@@ -19,7 +19,9 @@ export async function backend(
     response = await fetch(`${dashboardConfig().api}${path}`, {
       method,
       headers: {
-        authorization: `Bearer ${token}`,
+        authorization: token.startsWith("StaffSession ")
+          ? token
+          : `Bearer ${token}`,
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),

@@ -1,8 +1,9 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
 import type { Logger } from "@roco/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { resolvePrincipal } from "./staff-principal.js";
 import { accessSchema, WorkflowError, type Principal } from "@roco/workflow";
 export type WorkflowOperation =
   | "CREATE"
@@ -78,23 +79,16 @@ export function registerWorkflowRoutes(
           return reply
             .code(503)
             .send({ error: "WORKFLOW_ACCESS_NOT_CONFIGURED" });
-        const header = request.headers.authorization;
-        if (!header?.startsWith("Bearer "))
-          return reply.code(401).send({ error: "UNAUTHORIZED" });
-        const hash = createHash("sha256").update(header.slice(7)).digest();
-        let identity: (typeof credentials)[number] | undefined;
-        for (const credential of credentials)
-          if (timingSafeEqual(credential.hash, hash)) identity = credential;
-        if (!identity) return reply.code(401).send({ error: "UNAUTHORIZED" });
         const params = paramsSchema.safeParse(request.params);
         if (!params.success)
           return reply.code(400).send({ error: "INVALID_WORKFLOW_PARAMETERS" });
-        const p: Principal = {
-          actorId: identity.actorId,
-          roles: identity.roles,
-          correlationId: request.id,
-        };
+        let p: Principal | undefined;
         try {
+          p = await resolvePrincipal(
+            request.headers.authorization,
+            request.id,
+            credentials,
+          );
           const output = await service.invoke(
             operation,
             params.data.siteId,
@@ -111,16 +105,20 @@ export function registerWorkflowRoutes(
           if (error instanceof WorkflowError)
             return reply
               .code(
-                error.code.includes("FORBIDDEN") ||
-                  error.code.includes("ACTOR_REQUIRED")
-                  ? 403
-                  : 409,
+                error.code === "STAFF_AUTH_UNAVAILABLE"
+                  ? 503
+                  : error.code === "UNAUTHORIZED"
+                    ? 401
+                    : error.code.includes("FORBIDDEN") ||
+                        error.code.includes("ACTOR_REQUIRED")
+                      ? 403
+                      : 409,
               )
               .send({ error: error.code });
           request.log.error(
             {
               requestId: request.id,
-              actorId: p.actorId,
+              actorId: p?.actorId,
               errorCode: "WORKFLOW_OPERATION_FAILED",
             },
             "workflow operation failed",

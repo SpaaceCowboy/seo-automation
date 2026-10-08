@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  ...(process.env.SEO_ASSET_PREFIX
+    ? { assetPrefix: process.env.SEO_ASSET_PREFIX }
+    : {}),
   headers() {
     return Promise.resolve([
       {

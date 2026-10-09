@@ -1,4 +1,4 @@
-> Shared staff login is an optional, coordinated release. See [STAFF_LOGIN_DEPLOYMENT.md](STAFF_LOGIN_DEPLOYMENT.md). Until it is enabled, the existing credential login and operational procedures below remain in effect.
+> Shared staff login was activated on 2026-10-09. See [STAFF_LOGIN_DEPLOYMENT.md](STAFF_LOGIN_DEPLOYMENT.md) for the live release and rollback. The older credential-login description below is historical; routine non-auth operational procedures remain applicable.
 
 # Roco SEO production operations
 

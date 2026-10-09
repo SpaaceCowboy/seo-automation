@@ -1,3 +1,5 @@
+> **Live rollout — 2026-10-09:** staff mode is active. API/dashboard use `roco-seo:staff-cd7a7b6` and the staff proxy is active. The worker remains on `roco-seo:integrations-20261008`; PostgreSQL and worker instances were not recreated. The website runs revision `19b55b0` with the authenticated Apache-header-chain fix. Live checks passed for MFA, both dashboards, asset routing, draft save/conflicts, real upload and global logout. Temporary verification accounts were disabled and audit history retained. No credential values are recorded here.
+
 # Shared SCC staff login deployment
 
 This is an opt-in integration with the independently deployed RocoBroker content admin. It adds no SEO website-write capability. Both VPSs, databases, worker schedules and workflow permissions remain separate.

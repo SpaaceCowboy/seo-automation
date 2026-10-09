@@ -347,3 +347,7 @@
 - Decision: Add a dedicated Integrations view and authenticated control endpoints. The worker publishes safe boot-scoped status and performs fixed-origin model metadata checks at startup, every 15 minutes and manually. Preserve check history independently of AI runs and derive budgets from the existing ledger.
 - Rationale: Agent availability must be visible before analysis, without exposing provider credentials to API/dashboard or fabricating recommendation evidence.
 - Tradeoffs: A successful metadata check proves only key/model access. One worker is supported; stale telemetry is labelled rather than inferred as provider failure. An additive migration stores operational status/check history. No new Google probes or paid inference are introduced.
+
+## 2026-10-08 — Shared SCC staff authentication (prepared, opt-in)
+
+Serve the independently deployed website admin under SCC's `/admin` through an authenticated, TLS-verified proxy. Reuse the website's Better Auth/PostgreSQL identity store for terminal-provisioned email/password accounts with mandatory TOTP; preserve SEO's local permissions and existing human audit actors. Keep automation/service credentials and both VPSs separate. Gate activation on the main-VPS operator completing the handoff. Database-backed session validation introduces a dashboard-only availability dependency; workers do not depend on the shared login. See `STAFF_LOGIN_DEPLOYMENT.md`.

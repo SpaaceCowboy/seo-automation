@@ -13,6 +13,10 @@
     "./control": {
       "types": "./src/control.ts",
       "import": "./dist/control.js"
+    },
+    "./staff-auth": {
+      "types": "./src/staff-auth.ts",
+      "import": "./dist/staff-auth.js"
     }
   },
   "scripts": {

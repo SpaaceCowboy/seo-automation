@@ -6,6 +6,7 @@ import {
   registerWorkflowRoutes,
   type WorkflowApiService,
 } from "./workflow-routes.js";
+import { staffAuthConfig } from "@roco/shared/staff-auth";
 import { triggerAnalysisSchema } from "@roco/agents";
 import { timingSafeEqual, createHash } from "node:crypto";
 import {
@@ -180,6 +181,7 @@ const readinessResponseSchema = {
 } as const;
 
 export function buildApp(dependencies: AppDependencies) {
+  staffAuthConfig();
   const app = Fastify({
     loggerInstance: dependencies.logger,
     logController: new LogController({ disableRequestLogging: true }),

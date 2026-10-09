@@ -1,3 +1,5 @@
+> Shared staff login was activated on 2026-10-09. See [STAFF_LOGIN_DEPLOYMENT.md](STAFF_LOGIN_DEPLOYMENT.md) for the live release and rollback. The older credential-login description below is historical; routine non-auth operational procedures remain applicable.
+
 # Roco SEO production operations
 
 Phase 7.5 deployment only. Phase 8 and production website writes are not authorized. This stack has no website write adapter or write credential.

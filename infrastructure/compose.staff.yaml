@@ -1,0 +1,25 @@
+# Activate only after the main website passes staff-auth acceptance checks.
+# Existing API/worker credentials and schedules are unchanged.
+services:
+  api:
+    environment:
+      STAFF_AUTH_URL: https://rocobroker.com/api/admin/staff-session
+      STAFF_AUTH_SERVICE_SECRET_FILE: /run/secrets/staff_auth_service_secret
+    secrets: [staff_auth_service_secret]
+  dashboard:
+    build:
+      args:
+        SEO_ASSET_PREFIX: /seo-static
+    environment:
+      SEO_ASSET_PREFIX: /seo-static
+      STAFF_AUTH_URL: https://rocobroker.com/api/admin/staff-session
+      STAFF_AUTH_SERVICE_SECRET_FILE: /run/secrets/staff_auth_service_secret
+    secrets: [staff_auth_service_secret]
+  proxy:
+    volumes:
+      - ./nginx/staff-content-proxy.conf:/etc/nginx/staff-content-proxy.conf:ro
+      - ./nginx/roco-seo-staff.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/staff-proxy-header.conf:/etc/nginx/staff-proxy-header.conf:ro
+secrets:
+  staff_auth_service_secret:
+    file: ${ROCO_SECRETS_DIR:-/opt/roco-seo/secrets}/staff_auth_service_secret

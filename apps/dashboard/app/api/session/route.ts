@@ -1,3 +1,4 @@
+import { staffAuthConfig } from "@roco/shared/staff-auth";
 import { authenticatedSession } from "../../../lib/server";
 import { boundedText, BodyLimitError } from "../../../lib/body";
 import { cookies } from "next/headers";
@@ -14,6 +15,8 @@ import {
   endSession,
 } from "../../../lib/session";
 export async function POST(request: Request) {
+  if (staffAuthConfig())
+    return Response.json({ error: "USE_STAFF_SIGN_IN" }, { status: 404 });
   const config = dashboardConfig();
   if (!sameOrigin(request, config.origin))
     return Response.json({ error: "INVALID_ORIGIN" }, { status: 403 });
@@ -56,6 +59,8 @@ export async function POST(request: Request) {
   }
 }
 export async function DELETE(request: Request) {
+  if (staffAuthConfig())
+    return Response.json({ error: "USE_STAFF_SIGN_OUT" }, { status: 404 });
   if (!sameOrigin(request, dashboardConfig().origin))
     return Response.json({ error: "INVALID_ORIGIN" }, { status: 403 });
   const c = await cookies();

@@ -25,20 +25,18 @@ The helper expects a 64-character hex key, refuses an existing proxy include, pr
 
 ## Activation after the main operator reports readiness
 
-Use the prepared release image/tag, leaving the previous image available. First prepare the staff image explicitly, before changing the running proxy:
+The 2026-10-09 release has been staged at `/opt/roco-seo/releases/staff-cd7a7b6` and image `roco-seo:staff-cd7a7b6` has been built with the shared-login asset prefix. Existing production containers still run `roco-seo:integrations-20261008`; staff mode is disabled. The previous source archive is retained in that release directory. Activate the already-built image only after the main operator reports readiness:
 
 ```sh
 cd /opt/roco-seo/app
 test -f /opt/roco-seo/config/https.enabled
 test -f /opt/roco-seo/secrets/staff_auth_service_secret
 test -f /opt/roco-seo/secrets/staff-proxy-header.conf
-staff_image='REPLACE_WITH_THE_PREPARED_STAFF_IMAGE_TAG'
+staff_image='roco-seo:staff-cd7a7b6'
 ROCO_APP_IMAGE="$staff_image" docker compose --env-file /opt/roco-seo/config/compose.env \
   -f infrastructure/compose.production.yaml -f infrastructure/compose.https.yaml \
   -f infrastructure/compose.staff.yaml config --quiet
-ROCO_APP_IMAGE="$staff_image" docker compose --env-file /opt/roco-seo/config/compose.env \
-  -f infrastructure/compose.production.yaml -f infrastructure/compose.https.yaml \
-  -f infrastructure/compose.staff.yaml build dashboard
+# The image above has already been built with /seo-static. Do not rebuild it during activation.
 # This checks syntax without replacing the running proxy or printing its config.
 ROCO_APP_IMAGE="$staff_image" docker compose --env-file /opt/roco-seo/config/compose.env \
   -f infrastructure/compose.production.yaml -f infrastructure/compose.https.yaml \
@@ -63,7 +61,7 @@ The operator restores Google mode and its original origin on the website first. 
 
 ```sh
 rm /opt/roco-seo/config/staff.enabled
-previous_image='REPLACE_WITH_THE_RECORDED_PREVIOUS_IMAGE_TAG'
+previous_image='roco-seo:integrations-20261008'
 ROCO_APP_IMAGE="$previous_image" ./scripts/operations/compose.sh up -d --no-deps --wait api dashboard proxy
 ```
 
